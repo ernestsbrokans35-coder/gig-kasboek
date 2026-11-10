@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Gig Kasboek</title>
+<meta name="description" content="Freelance books on your phone: invoices from your email, VAT per quarter, hours, earnings and expenses. Everything stays on your device.">
+<meta name="theme-color" content="#0E6B4E">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+html { padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px) }
+body { margin: 0 }
+[hidden] { display: none !important }
+/*__CSS__*/
+nav.tabs div { grid-template-columns: repeat(4, 1fr) }
+.block p { margin: 0 }
+.chips { display: flex; flex-wrap: wrap; gap: 8px }
+.chips button { border: 1px solid var(--line); background: var(--bg); border-radius: 999px; padding: 6px 12px; font-size: 13px; max-width: 100%; overflow-wrap: anywhere; text-align: left }
+.chips button b { color: var(--late); font-weight: 600; margin-left: 6px }
+.inline { display: flex; gap: 8px }
+.inline input { flex: 1; min-width: 0; min-height: 42px; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--bg); font-size: 16px }
+.steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 14px }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Gig Kasboek</h1>
+    <div class="sync"><span id="syncText"></span><button class="linkbtn" id="syncBtn" type="button" hidden>Check email</button></div>
+  </header>
+  <div class="qnav" id="qnav">
+    <button type="button" id="qPrev" aria-label="Previous quarter">&#8249;</button>
+    <div class="q"><b id="qLabel"></b><span id="qSub"></span></div>
+    <button type="button" id="qNext" aria-label="Next quarter">&#8250;</button>
+  </div>
+  <div id="notice" class="notice" hidden></div>
+  <main id="view" style="display:flex;flex-direction:column;gap:14px"></main>
+  <form class="sheet" id="exForm" hidden novalidate>
+    <div class="eyebrow">New expense</div>
+    <div class="field"><label for="exWhat">What was it</label><input id="exWhat" autocomplete="off" placeholder="Work shoes, train ticket"></div>
+    <div class="field"><label for="exNote">Who or what it was for (optional)</label><input id="exNote" autocomplete="off" placeholder="Dinner with the crew after the event"></div>
+    <div class="two">
+      <div class="field"><label for="exDate">Date on the receipt</label><input id="exDate" type="date"></div>
+      <div class="field"><label for="exAmount">Paid, incl. VAT (&euro;)</label><input id="exAmount" inputmode="decimal" autocomplete="off" placeholder="0,00"></div>
+    </div>
+    <div class="two">
+      <div class="field"><label for="exRate">VAT on it</label><select id="exRate"><option value="21">21%</option><option value="9">9%</option><option value="0">No VAT</option><option value="custom">Type the amount</option></select></div>
+      <div class="field"><label for="exVat">VAT amount (&euro;)</label><input id="exVat" inputmode="decimal" autocomplete="off" placeholder="0,00"></div>
+    </div>
+    <div class="field"><label for="exFile">Photo of the receipt, or a PDF (optional)</label><input id="exFile" type="file" accept="image/*,application/pdf"></div>
+    <div class="err" id="exErr" hidden></div>
+    <div class="actions"><button class="btn primary" type="submit" id="exSave">Save expense</button><button class="btn" type="button" id="exCancel">Cancel</button></div>
+  </form>
+</div>
+<nav class="tabs"><div>
+  <button type="button" data-tab="overview">Overview</button>
+  <button type="button" data-tab="invoices">Invoices</button>
+  <button type="button" data-tab="expenses">Expenses</button>
+  <button type="button" data-tab="setup">Setup</button>
+</div></nav>
+<input id="rcFile" type="file" accept="image/*,application/pdf" hidden aria-label="Receipt file">
+<input id="pdfFile" type="file" accept="application/pdf" multiple hidden aria-label="Invoice PDFs">
+<input id="bkFile" type="file" accept=".zip,application/zip" hidden aria-label="Backup file">
+<div class="toast" id="toast" hidden></div>
+
+<script src="config.js"></script>
+<script>
+/*__PARSER__*/
+</script>
+<script>
+(() => {
+  const CFG = window.KASBOEK_CONFIG || {};
+  const CLIENT = (CFG.googleClientId || '').trim();
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const r2 = n => Math.round(n * 100) / 100;
+  const eur = n => new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'EUR' }).format(n || 0);
+  const hrs = n => (n || 0).toLocaleString('en-GB', { maximumFractionDigits: 2 }) + ' h';
+  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const pad = n => String(n).padStart(2, '0');
+  const isoOf = d => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+  const utc = iso => { const [y, m, d] = iso.split('-').map(Number); return Date.UTC(y, m - 1, d); };
+  const days = (a, b) => Math.round((utc(b) - utc(a)) / 864e5);
+  const nice = iso => { const [y, m, d] = iso.split('-').map(Number); return `${d} ${MON[m - 1]} ${y}`; };
+  const short = iso => { const [, m, d] = iso.split('-').map(Number); return `${d} ${MON[m - 1]}`; };
+  const today = () => { try { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Amsterdam' }).format(new Date()); } catch (e) { return isoOf(new Date()); } };
+  const isDate = v => /^\d{4}-\d{2}-\d{2}$/.test(v || '');
+  const lsGet = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+  const lsDel = k => { try { localStorage.removeItem(k); } catch (e) {} };
+  const rid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const money = v => { const n = parseFloat(String(v).trim().replace(/\s/g, '').replace(',', '.')); return isFinite(n) ? r2(n) : NaN; };
+  const ago = t => { const m = Math.round((Date.now() - t) / 60000); return m < 2 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`; };
+
+  /* Dutch VAT quarters: the return for a quarter is filed and paid in the month after it ends. */
+  const qOf = iso => { const [y, m] = iso.split('-').map(Number); return { y, q: Math.ceil(m / 3) }; };
+  const qKey = ({ y, q }) => `${y}-Q${q}`;
+  const qStart = ({ y, q }) => `${y}-${pad(q * 3 - 2)}-01`;
+  const qEnd = ({ y, q }) => isoOf(new Date(Date.UTC(y, q * 3, 0)));
+  const qOpen = ({ y, q }) => isoOf(new Date(Date.UTC(y, q * 3, 1)));
+  const qDue = ({ y, q }) => isoOf(new Date(Date.UTC(y, q * 3 + 1, 0)));
+  const qShift = ({ y, q }, n) => { const i = y * 4 + (q - 1) + n; return { y: Math.floor(i / 4), q: (i % 4) + 1 }; };
+  const inQ = (iso, Q) => !!iso && iso >= qStart(Q) && iso <= qEnd(Q);
+
+  /* ---------- storage: everything lives in this browser's IndexedDB ---------- */
+  const DB = (() => {
+    let p;
+    const open = () => p || (p = new Promise((ok, no) => {
+      const r = indexedDB.open('gig-kasboek', 1);
+      r.onupgradeneeded = () => ['invoices', 'expenses', 'files', 'meta'].forEach(n => r.result.createObjectStore(n));
+      r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error);
+    }));
+    const run = async (store, mode, fn) => { const d = await open(); return new Promise((ok, no) => { const t = d.transaction(store, mode); const q = fn(t.objectStore(store)); t.oncomplete = () => ok(q ? q.result : undefined); t.onerror = t.onabort = () => no(t.error); }); };
+    return {
+      all: async store => { const d = await open(); return new Promise((ok, no) => { const s = d.transaction(store).objectStore(store), k = s.getAllKeys(), v = s.getAll(); v.onsuccess = () => ok(v.result.map((val, i) => ({ key: k.result[i], value: val }))); v.onerror = () => no(v.error); }); },
+      get: (store, key) => run(store, 'readonly', s => s.get(key)),
+      put: (store, key, val) => run(store, 'readwrite', s => s.put(val, key)),
+      del: (store, key) => run(store, 'readwrite', s => s.delete(key)),
+      clear: store => run(store, 'readwrite', s => s.clear()),
+    };
+  })();
+  const defaults = () => ({ senders: [], vatStart: null, hoursMark: null, filed: {}, gmail: null, lastCheck: null, seenMsgs: {}, ignored: {} });
+  const state = {
+    tab: ['overview', 'invoices', 'expenses', 'setup'].includes(lsGet('kb.tab')) ? lsGet('kb.tab') : 'overview',
+    Q: qOf(today()), invoices: new Map(), expenses: new Map(), settings: defaults(), token: null,
+    loaded: false, failed: false, open: null, invScope: 'q', confirmDel: null, busy: null, zoom: null, rcFor: null, editInv: null, wipe: false,
+  };
+  const saveSettings = () => DB.put('meta', 'settings', state.settings);
+  async function loadAll() {
+    const [inv, ex, set] = await Promise.all([DB.all('invoices'), DB.all('expenses'), DB.get('meta', 'settings')]);
+    state.invoices = new Map(inv.map(r => [r.key, r.value])); state.expenses = new Map(ex.map(r => [r.key, r.value]));
+    state.settings = Object.assign(defaults(), set || {});
+  }
+  const urls = new Map();
+  async function fileBlob(id) { const f = await DB.get('files', id); return f ? new Blob([f.buf], { type: f.type }) : null; }
+  async function fileUrl(id) { if (!urls.has(id)) { const b = await fileBlob(id); if (!b) return null; urls.set(id, URL.createObjectURL(b)); } return urls.get(id); }
+  async function putFile(data, type, name) {
+    const buf = data instanceof Blob ? await data.arrayBuffer() : data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+    const id = rid('f'); await DB.put('files', id, { buf, type, name }); return id;
+  }
+  async function dropFile(id) { if (!id) return; if (urls.has(id)) { URL.revokeObjectURL(urls.get(id)); urls.delete(id); } await DB.del('files', id); }
+  async function saveBlob(blob, filename) {
+    const file = new File([blob], filename, { type: blob.type });
+    if (matchMedia('(pointer: coarse)').matches && navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file] }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
+    }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  }
+  async function openFile(id) {
+    const u = await fileUrl(id); if (!u) { toast('That file is no longer on this device.'); return; }
+    if (!window.open(u, '_blank')) { const a = document.createElement('a'); a.href = u; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); }
+  }
+
+  function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => { t.hidden = true; }, 3200); }
+  function notice(msg, bad) { const n = $('notice'); n.hidden = !msg; n.textContent = msg || ''; n.className = 'notice' + (bad ? ' bad' : ''); }
+
+  /* ---------- sums ---------- */
+  const invList = () => [...state.invoices.values()].sort((a, b) => (b.issued || '').localeCompare(a.issued || '') || String(b.number).localeCompare(String(a.number)));
+  const exList = () => [...state.expenses.values()].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  function sums(Q) {
+    const start = state.settings.vatStart, counts = d => !start || (d || '') >= start;
+    const inv = invList().filter(i => inQ(i.issued, Q)), ex = exList().filter(e => inQ(e.date, Q));
+    const earned = r2(inv.reduce((t, i) => t + (i.subtotal || 0), 0));
+    const vatOut = r2(inv.reduce((t, i) => t + (counts(i.issued) ? i.vat || 0 : 0), 0));
+    const hours = r2(inv.reduce((t, i) => t + (i.hours || 0), 0));
+    const exGross = r2(ex.reduce((t, e) => t + (e.amount || 0), 0));
+    const vatIn = r2(ex.reduce((t, e) => t + (counts(e.date) ? e.vat || 0 : 0), 0));
+    return { inv, ex, earned, vatOut, hours, exGross, vatIn, exNet: r2(exGross - vatIn), vatDue: r2(vatOut - vatIn) };
+  }
+  function monthHours(Q) {
+    const out = [0, 1, 2].map(k => ({ m: Q.q * 3 - 3 + k, h: 0 }));
+    for (const i of state.invoices.values()) {
+      const shifts = (i.lines || []).filter(l => l.kind === 'shift');
+      if (shifts.length) { for (const l of shifts) if (inQ(l.date, Q)) out[Number(l.date.slice(5, 7)) - 1 - (Q.q * 3 - 3)].h += l.qty || 0; }
+      else if (i.hours && inQ(i.issued, Q)) out[Number(i.issued.slice(5, 7)) - 1 - (Q.q * 3 - 3)].h += i.hours;
+    }
+    return out.map(o => ({ m: o.m, h: r2(o.h) }));
+  }
+
+  /* ---------- views ---------- */
+  function deadlineCard(Q) {
+    const t = today(), end = qEnd(Q), open = qOpen(Q), due = qDue(Q), key = qKey(Q), name = `Q${Q.q} ${Q.y}`, start = state.settings.vatStart;
+    if (start && end < start) return `<section class="deadline quiet"><div class="eyebrow">VAT return ${name}</div><div class="count"><b>None</b><span>to file</span></div><p>Your VAT registration starts ${nice(start)}, so there is no return for this quarter.</p></section>`;
+    if (state.settings.filed[key]) return `<section class="deadline done"><div class="eyebrow">VAT return ${name}</div><div class="count"><b>Filed</b></div><p>You marked this return as filed. It was due ${nice(due)}.</p><button class="ghost" type="button" data-act="unfile">Undo</button></section>`;
+    if (t > due) return `<section class="deadline late"><div class="eyebrow">VAT return ${name}</div><div class="count"><b>${days(due, t)}</b><span>days past the deadline</span></div><p>This return was due ${nice(due)}.</p><button class="ghost" type="button" data-act="file">Mark as filed</button></section>`;
+    const total = days(qStart(Q), due), pct = Math.max(0, Math.min(100, days(qStart(Q), t) / total * 100)), tick = days(qStart(Q), end) / total * 100;
+    const text = t <= end ? `The quarter runs until ${nice(end)}. File and pay between ${short(open)} and ${nice(due)}.` : `Filing is open. File and pay by ${nice(due)}.`;
+    return `<section class="deadline"><div class="eyebrow">VAT return ${name}</div><div class="count"><b>${days(t, due)}</b><span>days left to file and pay</span></div><p>${text}</p>
+      <div><div class="track"><i style="width:${pct.toFixed(1)}%"></i><u style="left:${tick.toFixed(1)}%"></u></div><div class="track-labels"><span>${short(qStart(Q))}</span><span>quarter ends ${short(end)}</span><span>${short(due)}</span></div></div>
+      ${t > end ? '<button class="ghost" type="button" data-act="file">Mark as filed</button>' : ''}</section>`;
+  }
+  function overview() {
+    const Q = state.Q, s = sums(Q), mh = monthHours(Q), S = state.settings, mark = S.hoursMark > 0 ? S.hoursMark : 0;
+    const cap = Math.max(mark * 1.25, 10, ...mh.map(m => m.h)) * 1.05, back = s.vatDue < 0;
+    const start = !state.invoices.size ? `<section class="block"><h2>Start here</h2><ol class="steps"><li>Under Setup, add the email address your invoices come from.</li><li>${CLIENT ? 'Connect your Gmail there, or add invoice PDFs by hand under Invoices.' : 'Add your invoice PDFs under Invoices.'}</li></ol><button class="btn primary" type="button" data-act="gosetup">Open Setup</button></section>` : '';
+    return start + deadlineCard(Q) + `
+    <section class="block"><h2>${back ? 'VAT to get back' : 'VAT to pay'}</h2>
+      <div class="big tax">${eur(Math.abs(s.vatDue))}</div>
+      <div class="rows">
+        <div><span>VAT on your invoices</span><span>${eur(s.vatOut)}</span></div>
+        <div><span>VAT on your expenses</span><span>&minus; ${eur(s.vatIn)}</span></div>
+      </div>
+      <div class="small muted">Invoices count in the quarter of their invoice date, expenses in the quarter of their receipt date.${S.vatStart && S.vatStart > qStart(Q) ? ` VAT counts from ${nice(S.vatStart)}, when your registration started.` : ''}</div>
+    </section>
+    <section class="block"><h2>Earned this quarter</h2>
+      <div class="big">${eur(s.earned)}</div>
+      <div class="small muted">Excluding VAT, from ${s.inv.length} invoice${s.inv.length === 1 ? '' : 's'}.</div>
+      <div class="stats">
+        <div><b>${hrs(s.hours)}</b><span>hours invoiced</span></div>
+        <div><b>${s.hours ? eur(s.earned / s.hours) : '&ndash;'}</b><span>per hour</span></div>
+        <div><b>${eur(r2(s.earned - s.exNet))}</b><span>after expenses</span></div>
+      </div>
+    </section>
+    <section class="block"><h2>Hours by month worked</h2>
+      <div class="months">${mh.map(m => `<div class="month"><span>${MON[m.m]}</span><div class="bar"><i class="${m.h ? '' : 'zero'}" style="width:${(m.h / cap * 100).toFixed(1)}%"></i>${mark ? `<u style="left:${(mark / cap * 100).toFixed(1)}%"></u>` : ''}</div><span class="v">${hrs(m.h)}</span></div>`).join('')}</div>
+      <div class="small muted">Counted on the day of each shift where the invoice lists them.${mark ? ` The line marks ${mark} hours.` : ''}</div>
+    </section>`;
+  }
+  function invoiceItem(i) {
+    const shifts = (i.lines || []).filter(l => l.kind === 'shift');
+    const title = [...new Set(shifts.map(l => l.venue).filter(Boolean))].join(' · ') || (i.sender ? i.sender.replace(/<.*>/, '').replace(/"/g, '').trim() : '') || 'Invoice';
+    const openNow = state.open === i.id, shortNo = String(i.number).length > 14 ? String(i.number).split('-').pop() : i.number;
+    let h = `<div class="item"><button class="head" type="button" data-act="toggle" data-id="${esc(i.id)}" aria-expanded="${openNow}">
+      <span class="t">${esc(title)}</span><span class="a">${eur(i.total)}</span>
+      <span class="s">#${esc(shortNo)} · ${i.issued ? nice(i.issued) : 'no date'} ${i.vat ? `<span class="chip">VAT ${eur(i.vat)}</span>` : '<span class="chip plain">no VAT</span>'}${i.check ? ' <span class="chip bad">check the numbers</span>' : ''}</span><span class="s2">${i.hours ? hrs(i.hours) : ''}</span></button>`;
+    if (!openNow) return h + '</div>';
+    if (state.editInv === i.id) {
+      return h + `<div class="detail"><div class="two"><div class="field"><label for="edDate">Invoice date</label><input id="edDate" type="date" value="${esc(i.issued || '')}"></div><div class="field"><label for="edHours">Hours</label><input id="edHours" inputmode="decimal" value="${esc(String(i.hours || 0).replace('.', ','))}"></div></div>
+        <div class="two"><div class="field"><label for="edSub">Amount excl. VAT (&euro;)</label><input id="edSub" inputmode="decimal" value="${esc((i.subtotal || 0).toFixed(2).replace('.', ','))}"></div><div class="field"><label for="edVat">VAT (&euro;)</label><input id="edVat" inputmode="decimal" value="${esc((i.vat || 0).toFixed(2).replace('.', ','))}"></div></div>
+        <div class="err" id="edErr" hidden></div>
+        <div class="actions"><button class="btn primary" type="button" data-act="edsave" data-id="${esc(i.id)}">Save</button><button class="btn" type="button" data-act="edcancel">Cancel</button></div></div></div>`;
+    }
+    const del = state.confirmDel === i.id ? `<button class="btn danger" type="button" data-act="invdelyes" data-id="${esc(i.id)}">Yes, delete it</button><button class="btn" type="button" data-act="delno">Keep</button>` : `<button class="btn" type="button" data-act="del" data-id="${esc(i.id)}">Delete</button>`;
+    return h + `<div class="detail">${(i.lines || []).map(l => l.kind === 'shift'
+      ? `<div class="shift"><span class="w">${esc(l.what || 'Shift')}</span><span class="m">${eur(l.amount)}</span><span class="d">${esc(l.venue)} · ${short(l.date)}, ${esc(l.start)}&ndash;${esc(l.end)} · ${hrs(l.qty)} &times; ${eur(l.rate)}</span></div>`
+      : `<div class="shift"><span class="w">${esc(l.what)}</span><span class="m">${eur(l.amount)}</span></div>`).join('')}
+      <div class="rows"><div><span>Subtotal</span><span>${eur(i.subtotal)}</span></div><div><span>VAT</span><span>${eur(i.vat)}</span></div><div class="sum"><span>Total</span><span>${eur(i.total)}</span></div></div>
+      <div class="actions">${i.pdf ? `<button class="btn" type="button" data-act="openpdf" data-id="${esc(i.id)}">Open PDF</button><button class="btn" type="button" data-act="savepdf" data-id="${esc(i.id)}">Save PDF</button>` : ''}<button class="btn" type="button" data-act="edit" data-id="${esc(i.id)}">Edit numbers</button>${del}</div></div></div>`;
+  }
+  function invoices() {
+    const Q = state.Q, all = state.invScope === 'all', list = all ? invList() : sums(Q).inv, withPdf = list.filter(i => i.pdf);
+    const label = all ? 'all invoices' : `Q${Q.q} ${Q.y}`, busy = state.busy === 'merge', adding = state.busy === 'add';
+    return `<div class="seg"><button type="button" data-act="scope" data-v="q" aria-pressed="${!all}">Q${Q.q} ${Q.y}</button><button type="button" data-act="scope" data-v="all" aria-pressed="${all}">All invoices</button></div>
+    <div class="list">${list.length ? list.map(invoiceItem).join('') : `<div class="empty">No invoices dated in ${esc(label)}.</div>`}</div>
+    <button class="btn wide" type="button" data-act="addpdf" ${adding ? 'disabled' : ''}>${adding ? 'Reading the PDFs' : 'Add invoice PDFs by hand'}</button>
+    ${withPdf.length ? `<button class="btn wide" type="button" data-act="merge" ${busy ? 'disabled' : ''}>${busy ? 'Putting the PDFs together' : `Save ${withPdf.length} PDF${withPdf.length === 1 ? '' : 's'} as one file`}</button><div class="small muted">One PDF with every invoice in ${esc(label)}, oldest first.</div>` : ''}`;
+  }
+  const isImg = e => /^image\//.test(e.receiptType || '');
+  function expenses() {
+    const Q = state.Q, s = sums(Q), formOpen = !$('exForm').hidden;
+    return `<section class="block"><h2>Expenses Q${Q.q} ${Q.y}</h2>
+      <div class="big">${eur(s.exGross)}</div>
+      <div class="rows"><div><span>VAT you take off</span><span>${eur(s.vatIn)}</span></div><div><span>Cost excluding VAT</span><span>${eur(s.exNet)}</span></div></div>
+    </section>
+    ${formOpen ? '' : '<button class="btn primary wide" type="button" data-act="addex">Add an expense</button>'}
+    <div class="list">${s.ex.length ? s.ex.map(e => `<div class="item"><div style="display:grid;grid-template-columns:1fr auto;gap:2px 12px;padding:13px 16px">
+        <span class="t">${esc(e.what)}</span><span class="a">${eur(e.amount)}</span>
+        <span class="s">${nice(e.date)} ${e.vat ? `<span class="chip">VAT ${eur(e.vat)}</span>` : '<span class="chip plain">no VAT</span>'}</span><span class="s2"></span>${e.note ? `<span class="s" style="grid-column:1/-1">${esc(e.note)}</span>` : ''}</div>
+        <div class="detail">${e.receipt && isImg(e) && state.zoom === e.id ? `<img class="receipt-full" data-file="${esc(e.receipt)}" alt="Receipt for ${esc(e.what)}">` : ''}<div class="actions" style="align-items:center">${e.receipt
+          ? (isImg(e) ? `<button class="thumb" type="button" data-act="zoom" data-id="${esc(e.id)}" aria-label="${state.zoom === e.id ? 'Hide' : 'Show'} the receipt"><img data-file="${esc(e.receipt)}" alt=""></button>` : '') + `<button class="btn" type="button" data-act="openrc" data-id="${esc(e.id)}">Open receipt</button>`
+          : `<button class="btn" type="button" data-act="addrc" data-id="${esc(e.id)}">Add receipt</button>`}${state.confirmDel === e.id ? `<button class="btn danger" type="button" data-act="delyes" data-id="${esc(e.id)}">Yes, delete it</button><button class="btn" type="button" data-act="delno">Keep</button>` : `<button class="btn" type="button" data-act="del" data-id="${esc(e.id)}">Delete</button>`}</div></div></div>`).join('')
+      : '<div class="empty">Nothing written off this quarter yet. Add a receipt and its VAT comes off what you pay.</div>'}</div>`;
+  }
+  function setup() {
+    const S = state.settings, ok = tokenOk();
+    const mail = !CLIENT
+      ? '<p class="small muted">Email connection is not switched on in this copy of the app. You can add invoice PDFs by hand under Invoices.</p>'
+      : S.gmail
+        ? `<p>Connected to <b>${esc(S.gmail)}</b>.</p><p class="small muted">${S.lastCheck ? `Last checked ${ago(S.lastCheck)}.` : 'Not checked yet.'} ${ok ? '' : 'Google asks you to confirm again about once an hour; tap Check email to do that.'}</p><div class="actions"><button class="btn primary" type="button" data-act="check">Check email</button><button class="btn" type="button" data-act="disconnect">Disconnect</button></div>`
+        : `<p class="small muted">The app gets read-only access to your Gmail and searches only for PDFs from the addresses above. What it finds is stored on this device and goes nowhere else.</p><div class="actions"><button class="btn primary" type="button" data-act="connect" ${S.senders.length ? '' : 'disabled'}>Connect Gmail</button></div>${S.senders.length ? '' : '<p class="small muted">Add a sender address first.</p>'}`;
+    return `<section class="block"><h2>Where your invoices come from</h2>
+      <p class="small muted">The address that sends your invoices, for example the no-reply address of your agency.</p>
+      ${S.senders.length ? `<div class="chips">${S.senders.map(a => `<button type="button" data-act="rmsender" data-v="${esc(a)}" aria-label="Remove ${esc(a)}">${esc(a)}<b>&times;</b></button>`).join('')}</div>` : ''}
+      <div class="inline"><input id="sender" type="email" inputmode="email" autocomplete="off" autocapitalize="off" placeholder="no-reply@agency.nl" aria-label="Sender address"><button class="btn" type="button" data-act="addsender">Add</button></div>
+    </section>
+    <section class="block"><h2>Email</h2>${mail}</section>
+    <section class="block"><h2>VAT and hours</h2>
+      <div class="two"><div class="field"><label for="vatStart">VAT registered since</label><input id="vatStart" type="date" value="${esc(S.vatStart || '')}"></div><div class="field"><label for="hoursMark">Monthly hours mark</label><input id="hoursMark" inputmode="numeric" placeholder="none" value="${S.hoursMark || ''}"></div></div>
+      <p class="small muted">Leave the date empty if every invoice counts for VAT. The hours mark draws a line on the monthly hours chart.</p>
+      <div class="actions"><button class="btn" type="button" data-act="savevat">Save</button></div>
+    </section>
+    <section class="block"><h2>Backup</h2>
+      <p class="small muted">Your ${state.invoices.size} invoice${state.invoices.size === 1 ? '' : 's'}, ${state.expenses.size} expense${state.expenses.size === 1 ? '' : 's'} and their files exist only on this device. Save a backup now and then, and before you switch phones.</p>
+      <div class="actions"><button class="btn" type="button" data-act="export" ${state.busy === 'bk' ? 'disabled' : ''}>${state.busy === 'bk' ? 'Working' : 'Save a backup'}</button><button class="btn" type="button" data-act="import">Restore a backup</button></div>
+    </section>
+    <section class="block"><h2>Start over</h2>
+      <div class="actions">${state.wipe ? '<button class="btn danger" type="button" data-act="wipeyes">Yes, delete everything on this device</button><button class="btn" type="button" data-act="wipeno">Keep it</button>' : '<button class="btn" type="button" data-act="wipe">Delete everything</button>'}</div>
+    </section>`;
+  }
+  function header() {
+    const S = state.settings, n = state.invoices.size; let text = '', btn = '';
+    if (!state.loaded) text = 'Loading your books';
+    else if (syncing) { text = syncing; }
+    else if (!CLIENT) text = n ? `${n} invoice${n === 1 ? '' : 's'} on this device` : '';
+    else if (S.gmail) { text = S.lastCheck ? `Email checked ${ago(S.lastCheck)}` : 'Email not checked yet'; btn = 'Check email'; }
+    else btn = 'Connect email';
+    $('syncText').textContent = text; $('syncBtn').hidden = !btn; $('syncBtn').textContent = btn;
+  }
+  function render() {
+    const Q = state.Q;
+    $('qLabel').textContent = `Q${Q.q} ${Q.y}`; $('qSub').textContent = `${MON[Q.q * 3 - 3]} to ${MON[Q.q * 3 - 1]}`;
+    $('qnav').hidden = state.tab === 'setup';
+    document.querySelectorAll('nav.tabs button').forEach(b => b.setAttribute('aria-current', b.dataset.tab === state.tab ? 'page' : 'false'));
+    if (state.tab !== 'expenses') $('exForm').hidden = true;
+    header();
+    const v = $('view');
+    if (!state.loaded) { v.innerHTML = '<div class="list"><div class="empty">Loading your invoices and expenses.</div></div>'; return; }
+    if (state.failed) { v.innerHTML = '<div class="list"><div class="empty">This browser will not let the app store data. Leave private browsing, or try another browser.</div></div>'; return; }
+    v.innerHTML = state.tab === 'invoices' ? invoices() : state.tab === 'expenses' ? expenses() : state.tab === 'setup' ? setup() : overview();
+    v.querySelectorAll('img[data-file]').forEach(async img => { const u = await fileUrl(img.dataset.file); if (u) img.src = u; });
+  }
+
+  /* ---------- PDFs ---------- */
+  const loaded = {};
+  function loadScript(src) { return loaded[src] || (loaded[src] = new Promise((ok, no) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => { delete loaded[src]; no(new Error('offline')); }; document.head.appendChild(s); })); }
+  const CDN = 'https://cdnjs.cloudflare.com/ajax/libs/';
+  async function pdfjs() { await loadScript(CDN + 'pdf.js/3.11.174/pdf.min.js'); await loadScript(CDN + 'pdf.js/3.11.174/pdf.worker.min.js'); return window.pdfjsLib; }
+  async function importPdf(bytes, info) {
+    let p;
+    try { const text = await Inv.pdfText(bytes, await pdfjs()); p = Inv.parse(text); if (!p.lines.length) p = Inv.generic(text); }
+    catch (e) { p = { number: null, issued: null, hours: 0, subtotal: 0, vat: 0, total: 0, lines: [], check: true }; }
+    const id = p.number ? p.number.replace(/[^A-Za-z0-9_.-]/g, '_') : 'doc-' + String(info.srcKey || rid('')).replace(/[^A-Za-z0-9]/g, '').slice(-18);
+    if (state.invoices.has(id)) return 'dup';
+    const pdf = await putFile(bytes, 'application/pdf', info.name || `Invoice_${id}.pdf`);
+    const doc = { id, number: p.number || (info.name || 'Invoice').replace(/\.pdf$/i, ''), issued: p.issued || info.date || today(), hours: p.hours, subtotal: p.subtotal, vat: p.vat, total: p.total, lines: p.lines, check: !!p.check, pdf, source: info.source, srcKey: info.srcKey || null, sender: info.sender || null, addedAt: new Date().toISOString() };
+    await DB.put('invoices', id, doc); state.invoices.set(id, doc); return 'new';
+  }
+  async function addPdfs(files) {
+    state.busy = 'add'; render(); let added = 0, dup = 0;
+    for (const f of files) { try { const r = await importPdf(new Uint8Array(await f.arrayBuffer()), { source: 'file', name: f.name, srcKey: f.name + f.size }); r === 'new' ? added++ : dup++; } catch (e) {} }
+    state.busy = null; if (added) state.invScope = 'all'; render();
+    toast(added ? `${added} invoice${added === 1 ? '' : 's'} added${dup ? `, ${dup} already there` : ''}` : dup ? 'Those invoices are already in the app' : 'Those files could not be read');
+  }
+  async function mergePdfs() {
+    const Q = state.Q, all = state.invScope === 'all', list = (all ? invList() : sums(Q).inv).filter(i => i.pdf).reverse();
+    if (!list.length) return;
+    state.busy = 'merge'; render();
+    try {
+      await loadScript(CDN + 'pdf-lib/1.17.1/pdf-lib.min.js');
+      const out = await PDFLib.PDFDocument.create();
+      for (const i of list) { const b = await fileBlob(i.pdf); if (!b) continue; const src = await PDFLib.PDFDocument.load(await b.arrayBuffer()); (await out.copyPages(src, src.getPageIndices())).forEach(p => out.addPage(p)); }
+      await saveBlob(new Blob([await out.save()], { type: 'application/pdf' }), all ? 'Invoices_all.pdf' : `Invoices_${Q.y}-Q${Q.q}.pdf`);
+    } catch (e) { toast(e && e.message === 'offline' ? 'You need to be online the first time you do this.' : 'The PDFs could not be put together.'); }
+    state.busy = null; render();
+  }
+
+  /* ---------- Gmail, straight from this device (no server in between) ---------- */
+  let syncing = '';
+  const SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
+  const tokenOk = () => !!state.token && state.token.exp > Date.now() + 30000;
+  function connect() {
+    const st = rid('s'); lsSet('kb.oauth', st);
+    const p = new URLSearchParams({ client_id: CLIENT, redirect_uri: location.origin + location.pathname, response_type: 'token', scope: SCOPE, state: st, include_granted_scopes: 'true' });
+    if (state.settings.gmail) p.set('login_hint', state.settings.gmail);
+    location.assign('https://accounts.google.com/o/oauth2/v2/auth?' + p);
+  }
+  function takeRedirect() {
+    if (!/(^|[#&])(access_token|error)=/.test(location.hash)) return '';
+    const h = new URLSearchParams(location.hash.slice(1)), st = lsGet('kb.oauth');
+    history.replaceState(null, '', location.pathname + location.search); lsDel('kb.oauth');
+    if (h.get('error') || !h.get('access_token') || !st || h.get('state') !== st) return 'failed';
+    state.token = { v: h.get('access_token'), exp: Date.now() + Number(h.get('expires_in') || 3600) * 1000 };
+    lsSet('kb.token', JSON.stringify(state.token)); return 'ok';
+  }
+  async function gm(path) {
+    const r = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/' + path, { headers: { Authorization: 'Bearer ' + state.token.v } });
+    if (r.status === 401 || r.status === 403) { state.token = null; lsDel('kb.token'); throw { code: 'auth' }; }
+    if (!r.ok) throw { code: 'http' };
+    return r.json();
+  }
+  async function syncEmail() {
+    const S = state.settings;
+    if (syncing || !CLIENT || !state.loaded) return;
+    if (!S.senders.length) { state.tab = 'setup'; render(); notice('Add the address your invoices come from first.'); return; }
+    if (!tokenOk()) { connect(); return; }
+    syncing = 'Checking email'; header();
+    try {
+      if (!S.gmail) S.gmail = (await gm('profile')).emailAddress || 'your Gmail';
+      const q = encodeURIComponent(`from:(${S.senders.join(' OR ')}) has:attachment filename:pdf`);
+      const ids = []; let next = '', pages = 0;
+      do { const r = await gm(`messages?maxResults=100&q=${q}${next ? '&pageToken=' + encodeURIComponent(next) : ''}`); (r.messages || []).forEach(m => ids.push(m.id)); next = r.nextPageToken || ''; } while (next && ++pages < 10);
+      const fresh = ids.filter(id => !S.seenMsgs[id]).reverse(); let added = 0;
+      for (let k = 0; k < fresh.length; k++) {
+        syncing = `Reading email ${k + 1} of ${fresh.length}`; header();
+        const m = await gm(`messages/${fresh[k]}?format=full`), parts = [];
+        const from = (((m.payload || {}).headers || []).find(h => h.name.toLowerCase() === 'from') || {}).value || '';
+        (function walk(p) { if (!p) return; if (/\.pdf$/i.test(p.filename || '') && p.body && p.body.attachmentId) parts.push(p); (p.parts || []).forEach(walk); })(m.payload);
+        for (const p of parts) {
+          const key = m.id + ':' + p.partId; if (S.ignored[key]) continue;
+          const a = await gm(`messages/${m.id}/attachments/${p.body.attachmentId}`);
+          if (await importPdf(Inv.b64ToBytes(a.data), { source: 'gmail', srcKey: key, sender: from, name: p.filename, date: isoOf(new Date(Number(m.internalDate))) }) === 'new') added++;
+        }
+        S.seenMsgs[m.id] = 1; await saveSettings();
+      }
+      S.lastCheck = Date.now(); await saveSettings(); notice('');
+      toast(added ? `${added} new invoice${added === 1 ? '' : 's'} added` : 'Email checked, nothing new');
+    } catch (e) {
+      notice(e && e.code === 'auth' ? 'Google needs you to confirm access again. Tap Check email.' : e && e.message === 'offline' ? 'You are offline. The email check runs when you are back online.' : 'The email check did not work. Try again in a minute.', true);
+    }
+    syncing = ''; render();
+  }
+  async function disconnect() {
+    const t = state.token; state.token = null; lsDel('kb.token');
+    if (t) fetch('https://oauth2.googleapis.com/revoke?token=' + encodeURIComponent(t.v), { method: 'POST' }).catch(() => {});
+    state.settings.gmail = null; await saveSettings(); render(); toast('Gmail disconnected. Your invoices stay on this device.');
+  }
+
+  /* ---------- backup ---------- */
+  async function exportBackup() {
+    state.busy = 'bk'; render();
+    try {
+      await loadScript(CDN + 'jszip/3.10.1/jszip.min.js');
+      const zip = new JSZip(), files = await DB.all('files');
+      zip.file('kasboek.json', JSON.stringify({ app: 'gig-kasboek', version: 1, exported: new Date().toISOString(), settings: state.settings, invoices: [...state.invoices.values()], expenses: [...state.expenses.values()], files: files.map(f => ({ id: f.key, type: f.value.type, name: f.value.name })) }));
+      files.forEach(f => zip.file('files/' + f.key, f.value.buf));
+      await saveBlob(new Blob([await zip.generateAsync({ type: 'arraybuffer' })], { type: 'application/zip' }), `gig-kasboek-backup-${today()}.zip`);
+    } catch (e) { toast(e && e.message === 'offline' ? 'You need to be online the first time you do this.' : 'The backup could not be made.'); }
+    state.busy = null; render();
+  }
+  async function importBackup(file) {
+    try {
+      await loadScript(CDN + 'jszip/3.10.1/jszip.min.js');
+      const zip = await JSZip.loadAsync(file), meta = JSON.parse(await zip.file('kasboek.json').async('string'));
+      if (meta.app !== 'gig-kasboek') throw new Error('wrong file');
+      for (const f of meta.files || []) { const z = zip.file('files/' + f.id); if (z) await DB.put('files', f.id, { buf: await z.async('arraybuffer'), type: f.type, name: f.name }); }
+      for (const i of meta.invoices || []) await DB.put('invoices', i.id, i);
+      for (const e of meta.expenses || []) await DB.put('expenses', e.id, e);
+      await DB.put('meta', 'settings', Object.assign(defaults(), meta.settings || {}));
+      await loadAll(); render(); toast('Backup restored');
+    } catch (e) { toast('That file is not a Gig Kasboek backup.'); }
+  }
+
+  /* ---------- expenses ---------- */
+  const fileType = f => /^(image\/|application\/pdf$)/.test(f.type || '') ? f.type : /\.pdf$/i.test(f.name) ? 'application/pdf' : 'image/jpeg';
+  function autoVat() {
+    const rate = $('exRate').value, amt = money($('exAmount').value);
+    $('exVat').readOnly = rate !== 'custom';
+    if (rate !== 'custom') $('exVat').value = isFinite(amt) ? r2(amt * Number(rate) / (100 + Number(rate))).toFixed(2).replace('.', ',') : '';
+  }
+  function openForm() { const f = $('exForm'); f.reset(); $('exDate').value = today(); $('exErr').hidden = true; autoVat(); f.hidden = false; render(); $('exWhat').focus(); }
+  async function saveExpense(ev) {
+    ev.preventDefault();
+    const what = $('exWhat').value.trim(), date = $('exDate').value, amount = money($('exAmount').value), vat = money($('exVat').value || '0');
+    const err = !what ? 'Say what the expense was.' : !isDate(date) ? 'Pick the date on the receipt.' : !(amount > 0) ? 'Fill in what you paid, for example 24,95.' : !(vat >= 0 && vat <= amount) ? 'The VAT amount has to be between zero and what you paid.' : '';
+    $('exErr').textContent = err; $('exErr').hidden = !err; if (err) return;
+    $('exSave').disabled = true;
+    try {
+      let receipt = null, receiptType = null; const file = $('exFile').files && $('exFile').files[0];
+      if (file) { receiptType = fileType(file); receipt = await putFile(file, receiptType, file.name); }
+      const id = rid('e'), doc = { id, what, note: $('exNote').value.trim(), date, amount, vat, rate: $('exRate').value, receipt, receiptType, createdAt: new Date().toISOString() };
+      await DB.put('expenses', id, doc); state.expenses.set(id, doc);
+      $('exForm').hidden = true; state.Q = qOf(date); toast('Expense saved'); render();
+    } catch (e) { $('exErr').textContent = 'Saving did not work. Your device may be out of storage.'; $('exErr').hidden = false; }
+    $('exSave').disabled = false;
+  }
+
+  /* ---------- events ---------- */
+  $('qPrev').onclick = () => { state.Q = qShift(state.Q, -1); state.open = null; render(); };
+  $('qNext').onclick = () => { state.Q = qShift(state.Q, 1); state.open = null; render(); };
+  $('syncBtn').onclick = () => { if (state.settings.gmail || state.settings.senders.length) syncEmail(); else { state.tab = 'setup'; render(); } };
+  $('exForm').addEventListener('submit', saveExpense);
+  $('exCancel').onclick = () => { $('exForm').hidden = true; render(); };
+  $('exRate').onchange = autoVat; $('exAmount').oninput = autoVat;
+  $('pdfFile').onchange = () => { const f = [...($('pdfFile').files || [])]; $('pdfFile').value = ''; if (f.length) addPdfs(f); };
+  $('bkFile').onchange = () => { const f = $('bkFile').files && $('bkFile').files[0]; $('bkFile').value = ''; if (f) importBackup(f); };
+  $('rcFile').onchange = async () => {
+    const file = $('rcFile').files && $('rcFile').files[0], ex = state.expenses.get(state.rcFor); $('rcFile').value = '';
+    if (!file || !ex) return;
+    try { ex.receiptType = fileType(file); ex.receipt = await putFile(file, ex.receiptType, file.name); await DB.put('expenses', ex.id, ex); toast('Receipt attached'); } catch (e) { toast('The receipt could not be stored.'); }
+    render();
+  };
+  document.querySelector('nav.tabs').addEventListener('click', e => { const b = e.target.closest('button[data-tab]'); if (!b) return; state.tab = b.dataset.tab; lsSet('kb.tab', state.tab); state.wipe = false; notice(''); window.scrollTo(0, 0); render(); });
+  $('view').addEventListener('click', async e => {
+    const b = e.target.closest('[data-act]'); if (!b) return;
+    const act = b.dataset.act, id = b.dataset.id, S = state.settings, key = qKey(state.Q);
+    try {
+      if (act === 'toggle') { state.open = state.open === id ? null : id; state.editInv = null; state.confirmDel = null; }
+      else if (act === 'scope') state.invScope = b.dataset.v;
+      else if (act === 'gosetup') { state.tab = 'setup'; lsSet('kb.tab', 'setup'); }
+      else if (act === 'openpdf') return openFile(state.invoices.get(id).pdf);
+      else if (act === 'savepdf') { const i = state.invoices.get(id), blob = await fileBlob(i.pdf); return blob ? saveBlob(blob, `Invoice_${i.id}.pdf`) : toast('That file is no longer on this device.'); }
+      else if (act === 'merge') return mergePdfs();
+      else if (act === 'addpdf') return $('pdfFile').click();
+      else if (act === 'edit') state.editInv = id;
+      else if (act === 'edcancel') state.editInv = null;
+      else if (act === 'edsave') {
+        const i = state.invoices.get(id), d = $('edDate').value, h = money($('edHours').value || '0'), sub = money($('edSub').value), vat = money($('edVat').value || '0');
+        const err = !isDate(d) ? 'Pick the invoice date.' : !(sub >= 0) || !(vat >= 0) || !(h >= 0) ? 'Use numbers like 121,00.' : '';
+        if (err) { $('edErr').textContent = err; $('edErr').hidden = false; return; }
+        Object.assign(i, { issued: d, hours: h, subtotal: sub, vat, total: r2(sub + vat), check: false, edited: true });
+        await DB.put('invoices', id, i); state.editInv = null; toast('Invoice updated');
+      }
+      else if (act === 'del') state.confirmDel = id;
+      else if (act === 'delno') state.confirmDel = null;
+      else if (act === 'invdelyes') { const i = state.invoices.get(id); if (i.srcKey) { S.ignored[i.srcKey] = 1; await saveSettings(); } await dropFile(i.pdf); await DB.del('invoices', id); state.invoices.delete(id); state.confirmDel = null; toast('Invoice deleted'); }
+      else if (act === 'addex') return openForm();
+      else if (act === 'zoom') state.zoom = state.zoom === id ? null : id;
+      else if (act === 'openrc') return openFile(state.expenses.get(id).receipt);
+      else if (act === 'addrc') { state.rcFor = id; return $('rcFile').click(); }
+      else if (act === 'delyes') { const ex = state.expenses.get(id); await dropFile(ex.receipt); await DB.del('expenses', id); state.expenses.delete(id); state.confirmDel = null; toast('Expense deleted'); }
+      else if (act === 'file' || act === 'unfile') { S.filed[key] = act === 'file'; await saveSettings(); }
+      else if (act === 'addsender') {
+        const v = $('sender').value.trim().toLowerCase();
+        if (!/^[^\s@<>()"]+@[^\s@<>()"]+\.[a-z]{2,}$/.test(v)) { toast('That does not look like an email address.'); return; }
+        if (!S.senders.includes(v)) { S.senders.push(v); S.seenMsgs = {}; await saveSettings(); }
+      }
+      else if (act === 'rmsender') { S.senders = S.senders.filter(a => a !== b.dataset.v); await saveSettings(); }
+      else if (act === 'connect') return connect();
+      else if (act === 'check') return syncEmail();
+      else if (act === 'disconnect') return disconnect();
+      else if (act === 'savevat') {
+        const d = $('vatStart').value, m = $('hoursMark').value.trim();
+        S.vatStart = isDate(d) ? d : null; S.hoursMark = m && Number(m) > 0 ? Number(m) : null; await saveSettings(); toast('Saved');
+      }
+      else if (act === 'export') return exportBackup();
+      else if (act === 'import') return $('bkFile').click();
+      else if (act === 'wipe') state.wipe = true;
+      else if (act === 'wipeno') state.wipe = false;
+      else if (act === 'wipeyes') { for (const s of ['invoices', 'expenses', 'files', 'meta']) await DB.clear(s); lsDel('kb.token'); state.token = null; urls.clear(); state.wipe = false; await loadAll(); state.tab = 'overview'; toast('Everything is deleted from this device'); }
+      render();
+    } catch (err) { toast('That did not save. Try again.'); render(); }
+  });
+
+  /* ---------- start ---------- */
+  render();
+  (async () => {
+    const back = takeRedirect();
+    try { const t = JSON.parse(lsGet('kb.token') || 'null'); if (t && t.exp > Date.now()) state.token = t; } catch (e) {}
+    try { await loadAll(); } catch (e) { state.failed = true; }
+    state.loaded = true; render();
+    if (state.failed) return;
+    if (back === 'failed') notice('Google did not give access, so nothing was connected.', true);
+    const due = () => CLIENT && state.settings.gmail && tokenOk() && (!state.settings.lastCheck || Date.now() - state.settings.lastCheck > 600000);
+    if (back === 'ok' || due()) syncEmail();
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) { header(); if (due()) syncEmail(); } });
+    if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => {});
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+  })();
+})();
+</script>
+</body>
+</html>

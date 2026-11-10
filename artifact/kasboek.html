@@ -1,0 +1,560 @@
+<title>Gig Kasboek</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one phone-width column. The VAT deadline and the amount to set aside lead, the records follow, tabs sit at the thumb. */
+:root {
+  --bg: #EDF0EB; --surface: #FAFBF9; --ink: #15211C; --muted: #5A6861; --line: #D3DAD3;
+  --accent: #0E6B4E; --on-accent: #FFFFFF; --accent-soft: #DCEBE3;
+  --tax: #9A4A12; --tax-soft: #F5E6D5; --late: #B3261E; --late-soft: #F8DEDB;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0D1412; --surface: #151E1B; --ink: #E7EEEA; --muted: #93A29B; --line: #26332E;
+  --accent: #4BC596; --on-accent: #06221A; --accent-soft: #173529;
+  --tax: #E8A662; --tax-soft: #33261A; --late: #F2857C; --late-soft: #3A1D1B; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0D1412; --surface: #151E1B; --ink: #E7EEEA; --muted: #93A29B; --line: #26332E;
+  --accent: #4BC596; --on-accent: #06221A; --accent-soft: #173529;
+  --tax: #E8A662; --tax-soft: #33261A; --late: #F2857C; --late-soft: #3A1D1B; color-scheme: dark }
+
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--ink); font: 400 15px/1.45 var(--sans); -webkit-text-size-adjust: 100% }
+.wrap { max-width: 520px; margin: 0 auto; padding-block: 14px 96px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 14px }
+button, input, select { font: inherit; color: inherit }
+button { cursor: pointer }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums }
+.eyebrow { font-size: 11px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--muted) }
+.muted { color: var(--muted) }
+.small { font-size: 13px }
+
+header.top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px }
+header.top h1 { margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -.01em }
+.sync { display: flex; align-items: center; gap: 8px; min-width: 0 }
+.sync span { font-size: 12px; color: var(--muted); text-align: right; min-width: 0 }
+.linkbtn { background: none; border: 0; padding: 4px 0; color: var(--accent); font-weight: 500; font-size: 13px; white-space: nowrap }
+
+.qnav { display: flex; align-items: center; justify-content: space-between; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 4px }
+.qnav button { width: 44px; height: 40px; border: 0; background: none; border-radius: 9px; font-size: 20px; color: var(--ink) }
+.qnav button:disabled { opacity: .25; cursor: default }
+.qnav .q { text-align: center; line-height: 1.2 }
+.qnav .q b { display: block; font-family: var(--mono); font-weight: 600; font-size: 16px }
+.qnav .q span { font-size: 12px; color: var(--muted) }
+
+.notice { border-radius: 10px; padding: 10px 12px; font-size: 13px; background: var(--tax-soft); color: var(--ink) }
+.notice.bad { background: var(--late-soft) }
+
+.deadline { background: var(--ink); color: var(--bg); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 10px }
+.deadline .eyebrow { color: inherit; opacity: .7 }
+.deadline .count { display: flex; align-items: baseline; gap: 8px }
+.deadline .count b { font: 600 52px/1 var(--mono); letter-spacing: -.03em }
+.deadline .count span { font-size: 16px; opacity: .85 }
+.deadline p { margin: 0; font-size: 14px; opacity: .9 }
+.deadline.late { background: var(--late); color: #fff }
+.deadline.done { background: var(--accent); color: var(--on-accent) }
+.deadline.quiet { background: var(--surface); color: var(--ink); border: 1px solid var(--line) }
+.track { position: relative; height: 6px; border-radius: 3px; background: color-mix(in srgb, currentColor 22%, transparent); margin-top: 4px }
+.track i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: currentColor }
+.track u { position: absolute; top: -4px; bottom: -4px; width: 2px; background: currentColor; opacity: .6 }
+.track-labels { display: flex; justify-content: space-between; font: 11px var(--mono); opacity: .75 }
+.deadline .ghost { align-self: flex-start; background: none; border: 1px solid currentColor; color: inherit; border-radius: 999px; padding: 7px 14px; font-size: 13px; font-weight: 500 }
+
+.block { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 10px }
+.block h2 { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--muted) }
+.big { font: 600 34px/1.05 var(--mono); letter-spacing: -.02em; font-variant-numeric: tabular-nums }
+.big.tax { color: var(--tax) }
+.rows { display: flex; flex-direction: column }
+.rows > div { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 14px }
+.rows > div span:last-child { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap }
+.rows > div.sum { font-weight: 600 }
+.stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px }
+.stats > div { min-width: 0 }
+.stats b { display: block; font: 600 18px/1.2 var(--mono); font-variant-numeric: tabular-nums }
+.stats span { font-size: 12px; color: var(--muted) }
+
+.months { display: flex; flex-direction: column; gap: 10px }
+.month { display: grid; grid-template-columns: 34px 1fr 62px; align-items: center; gap: 10px; font-size: 13px }
+.month .bar { position: relative; height: 14px; background: var(--bg); border-radius: 4px }
+.month .bar i { position: absolute; inset: 0 auto 0 0; background: var(--accent); border-radius: 4px; min-width: 2px }
+.month .bar i.zero { background: none }
+.month .bar u { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink) }
+.month .v { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums }
+
+.seg { display: grid; grid-template-columns: 1fr 1fr; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 3px }
+.seg button { border: 0; background: none; border-radius: 7px; padding: 8px; font-size: 13px; font-weight: 500; color: var(--muted) }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg) }
+
+.list { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; overflow: hidden }
+.item + .item { border-top: 1px solid var(--line) }
+.item > button.head { width: 100%; text-align: left; background: none; border: 0; padding: 13px 16px; display: grid; grid-template-columns: 1fr auto; gap: 2px 12px }
+.item .t { font-weight: 500; min-width: 0; overflow-wrap: anywhere }
+.item .a { font-family: var(--mono); font-weight: 600; font-variant-numeric: tabular-nums; text-align: right }
+.item .s { font-size: 12.5px; color: var(--muted); min-width: 0; overflow-wrap: anywhere }
+.item .s2 { font-size: 12.5px; color: var(--muted); text-align: right; font-family: var(--mono) }
+.chip { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--tax-soft); color: var(--tax); vertical-align: 1px }
+.chip.plain { background: var(--bg); color: var(--muted) }
+.chip.bad { background: var(--late-soft); color: var(--late) }
+.detail { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 10px }
+.shift { display: grid; grid-template-columns: 1fr auto; gap: 0 12px; font-size: 13px; padding-top: 8px; border-top: 1px dashed var(--line) }
+.shift .w { min-width: 0; overflow-wrap: anywhere }
+.shift .m { font-family: var(--mono); text-align: right; white-space: nowrap }
+.shift .d { grid-column: 1 / -1; color: var(--muted); font-size: 12.5px }
+.actions { display: flex; flex-wrap: wrap; gap: 8px }
+.btn { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 8px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-size: 14px; font-weight: 500; text-decoration: none }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent) }
+.btn.danger { color: var(--late); border-color: var(--late) }
+.btn.wide { width: 100% }
+.btn:disabled { opacity: .5; cursor: default }
+.thumb { padding: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--bg); width: 72px; height: 72px; flex: none }
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block }
+.receipt-full { width: 100%; border-radius: 10px; border: 1px solid var(--line); display: block }
+.empty { padding: 22px 16px; text-align: center; color: var(--muted); font-size: 14px }
+
+form.sheet { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 12px }
+.field { display: flex; flex-direction: column; gap: 4px; min-width: 0 }
+.field label { font-size: 12px; font-weight: 600; color: var(--muted) }
+.field input, .field select { width: 100%; min-height: 42px; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--bg); font-size: 16px }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px }
+.err { color: var(--late); font-size: 13px }
+
+nav.tabs { position: fixed; left: 0; right: 0; bottom: 0; background: var(--surface); border-top: 1px solid var(--line);
+  padding: 6px max(16px, env(safe-area-inset-right, 0px)) calc(6px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); z-index: 5 }
+nav.tabs div { max-width: 520px; margin: 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px }
+nav.tabs button { border: 0; background: none; border-radius: 10px; padding: 10px 4px; font-size: 13px; font-weight: 500; color: var(--muted) }
+nav.tabs button[aria-current="page"] { background: var(--accent-soft); color: var(--accent); font-weight: 600 }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(78px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 9px 14px; border-radius: 999px; font-size: 13px; z-index: 6; max-width: calc(100% - 32px) }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>Gig Kasboek</h1>
+    <div class="sync"><span id="syncText">Loading your books</span><button class="linkbtn" id="syncBtn" type="button" hidden>Check email</button></div>
+  </header>
+  <div class="qnav">
+    <button type="button" id="qPrev" aria-label="Previous quarter">&#8249;</button>
+    <div class="q"><b id="qLabel"></b><span id="qSub"></span></div>
+    <button type="button" id="qNext" aria-label="Next quarter">&#8250;</button>
+  </div>
+  <div id="notice" class="notice" hidden></div>
+  <main id="view" style="display:flex;flex-direction:column;gap:14px"></main>
+  <form class="sheet" id="exForm" hidden novalidate>
+    <div class="eyebrow">New expense</div>
+    <div class="field"><label for="exWhat">What was it</label><input id="exWhat" autocomplete="off" placeholder="Work shoes, train ticket"></div>
+    <div class="field"><label for="exNote">Who or what it was for (optional)</label><input id="exNote" autocomplete="off" placeholder="Dinner with the crew after the event"></div>
+    <div class="two">
+      <div class="field"><label for="exDate">Date on the receipt</label><input id="exDate" type="date"></div>
+      <div class="field"><label for="exAmount">Paid, incl. VAT (&euro;)</label><input id="exAmount" inputmode="decimal" autocomplete="off" placeholder="0,00"></div>
+    </div>
+    <div class="two">
+      <div class="field"><label for="exRate">VAT on it</label><select id="exRate"><option value="21">21%</option><option value="9">9%</option><option value="0">No VAT</option><option value="custom">Type the amount</option></select></div>
+      <div class="field"><label for="exVat">VAT amount (&euro;)</label><input id="exVat" inputmode="decimal" autocomplete="off" placeholder="0,00"></div>
+    </div>
+    <div class="field" id="exFileField"><label for="exFile">Photo of the receipt, or a PDF (optional)</label><input id="exFile" type="file" accept="image/png,image/jpeg,image/webp,application/pdf"></div>
+    <div class="err" id="exErr" hidden></div>
+    <div class="actions"><button class="btn primary" type="submit" id="exSave">Save expense</button><button class="btn" type="button" id="exCancel">Cancel</button></div>
+  </form>
+</div>
+<nav class="tabs"><div>
+  <button type="button" data-tab="overview">Overview</button>
+  <button type="button" data-tab="invoices">Invoices</button>
+  <button type="button" data-tab="expenses">Expenses</button>
+</div></nav>
+<input id="rcFile" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" hidden aria-label="Receipt file">
+<div class="toast" id="toast" hidden></div>
+
+<script>
+/* Invoice reading: Gmail raw message -> PDF bytes -> text -> numbers. Pure functions, no page state. */
+const Inv = (() => {
+  const num = s => parseFloat(String(s).replace(/\./g, '').replace(',', '.'));
+  const r2 = n => Math.round(n * 100) / 100;
+  function b64ToBytes(b64) {
+    const bin = atob(b64.replace(/-/g, '+').replace(/_/g, '/').replace(/[^A-Za-z0-9+/=]/g, ''));
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  function pdfFromRaw(raw) {
+    const bytes = b64ToBytes(raw);
+    let s = '';
+    for (let i = 0; i < bytes.length; i += 8192) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+    const m = /Content-(?:Type:\s*application\/pdf|Disposition:[^\r\n]*\.pdf)[\s\S]*?\r?\n\r?\n([A-Za-z0-9+\/=\r\n]+)/i.exec(s);
+    if (!m) return null;
+    const pdf = b64ToBytes(m[1]);
+    return pdf.length > 4 && pdf[0] === 0x25 && pdf[1] === 0x50 ? pdf : null;
+  }
+  async function pdfText(bytes, pdfjsLib) {
+    const doc = await pdfjsLib.getDocument({ data: bytes.slice() }).promise;
+    const out = [];
+    for (let p = 1; p <= doc.numPages; p++) {
+      const tc = await (await doc.getPage(p)).getTextContent();
+      out.push(tc.items.map(i => i.str).join('\n'));
+    }
+    return out.join('\n');
+  }
+  function parse(text) {
+    const flat = text.replace(/\s+/g, ' ').trim();
+    const number = (/Factuurnummer:\s*([\d-]+)/.exec(flat) || [])[1] || null;
+    const d = /Uitgiftedatum:\s*(\d{2})-(\d{2})-(\d{4})/.exec(flat);
+    const issued = d ? `${d[3]}-${d[2]}-${d[1]}` : null;
+    const a = flat.indexOf('Bedrag ');
+    const b = flat.indexOf('IBAN nummer');
+    let sec = a >= 0 && b > a ? flat.slice(a + 7, b) : '';
+    sec = sec.replace(/Beschrijving Aantal Eenheidsprijs Belasting Bedrag/g, ' ').replace(/Pagina \d+ van \d+/g, ' ').replace(/\s+/g, ' ').trim();
+    const lines = [];
+    const re = /(.*?) (\d+(?:[.,]\d+)?) € ([\d.,]+) (?:(\d+) ?% )?€ ([\d.,]+)(?= |$)/g;
+    let m, venue = '';
+    while ((m = re.exec(sec))) {
+      const desc = m[1].trim();
+      const base = { qty: num(m[2]), rate: num(m[3]), vatRate: m[4] ? Number(m[4]) : 0, amount: num(m[5]) };
+      const s = /^(.*?)\s*(\d{2})-(\d{2})-(\d{4}), (\d{2}:\d{2})u - (\d{2}:\d{2})u,?\s*(.*?)\s*(?:\d+ ?%)?$/.exec(desc);
+      if (s) {
+        if (s[1].trim()) venue = s[1].trim();
+        lines.push({ kind: 'shift', venue, date: `${s[4]}-${s[3]}-${s[2]}`, start: s[5], end: s[6], what: s[7].trim(), ...base });
+      } else {
+        lines.push({ kind: 'extra', venue, what: desc, ...base });
+      }
+    }
+    const hours = r2(lines.filter(l => l.kind === 'shift').reduce((t, l) => t + l.qty, 0));
+    const subtotal = r2(lines.reduce((t, l) => t + l.amount, 0));
+    const tm = /openstaande bedrag van € ([\d.,]+)/.exec(flat);
+    const total = tm ? num(tm[1]) : subtotal;
+    const vat = r2(total - subtotal);
+    const expectVat = r2(lines.reduce((t, l) => t + l.amount * l.vatRate / 100, 0));
+    let check = !number || !issued || !lines.length || !tm || vat < -0.005 || Math.abs(vat - expectVat) > 0.05;
+    const blk = /Te betalen bedrag: ([\d.,]+) € ([\d.,]+)/.exec(flat);
+    if (blk && (Math.abs(num(blk[1]) - hours) > 0.02 || Math.abs(num(blk[2]) - subtotal) > 0.02)) check = true;
+    return { number, issued, hours, subtotal, vat, total, lines, check };
+  }
+  return { pdfFromRaw, pdfText, parse, r2 };
+})();
+
+</script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const r2 = n => Math.round(n * 100) / 100;
+  const eur = n => new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'EUR' }).format(n || 0);
+  const hrs = n => (n || 0).toLocaleString('en-GB', { maximumFractionDigits: 2 }) + ' h';
+  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const pad = n => String(n).padStart(2, '0');
+  const isoOf = d => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+  const utc = iso => { const [y, m, d] = iso.split('-').map(Number); return Date.UTC(y, m - 1, d); };
+  const days = (a, b) => Math.round((utc(b) - utc(a)) / 864e5);
+  const nice = iso => { const [y, m, d] = iso.split('-').map(Number); return `${d} ${MON[m - 1]} ${y}`; };
+  const short = iso => { const [, m, d] = iso.split('-').map(Number); return `${d} ${MON[m - 1]}`; };
+  const today = () => { try { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Amsterdam' }).format(new Date()); } catch (e) { return isoOf(new Date()); } };
+  const lsGet = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+
+  /* Dutch VAT quarters: the return for a quarter is filed and paid in the month after it ends. */
+  const qOf = iso => { const [y, m] = iso.split('-').map(Number); return { y, q: Math.ceil(m / 3) }; };
+  const qKey = ({ y, q }) => `${y}-Q${q}`;
+  const qStart = ({ y, q }) => `${y}-${pad(q * 3 - 2)}-01`;
+  const qEnd = ({ y, q }) => isoOf(new Date(Date.UTC(y, q * 3, 0)));
+  const qOpen = ({ y, q }) => isoOf(new Date(Date.UTC(y, q * 3, 1)));
+  const qDue = ({ y, q }) => isoOf(new Date(Date.UTC(y, q * 3 + 1, 0)));
+  const qShift = ({ y, q }, n) => { const i = y * 4 + (q - 1) + n; return { y: Math.floor(i / 4), q: (i % 4) + 1 }; };
+  const inQ = (iso, Q) => !!iso && iso >= qStart(Q) && iso <= qEnd(Q);
+
+  const state = {
+    tab: ['overview', 'invoices', 'expenses'].includes(lsGet('kb.tab')) ? lsGet('kb.tab') : 'overview',
+    Q: qOf(today()), invoices: new Map(), expenses: new Map(), filed: new Map(),
+    loaded: false, vatStart: null, open: null, invScope: 'q', confirmDel: null, busy: null, zoom: null, rcFor: null,
+  };
+  let db = null, assets = null, downloads = null, mcp = null;
+
+  function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => { t.hidden = true; }, 3200); }
+  function notice(msg, bad) { const n = $('notice'); n.hidden = !msg; n.textContent = msg || ''; n.className = 'notice' + (bad ? ' bad' : ''); }
+
+  /* ---------- sums ---------- */
+  const invList = () => [...state.invoices.values()].sort((a, b) => (b.issued || '').localeCompare(a.issued || '') || b.number.localeCompare(a.number));
+  const exList = () => [...state.expenses.values()].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  function sums(Q) {
+    const inv = invList().filter(i => inQ(i.issued, Q));
+    const ex = exList().filter(e => inQ(e.date, Q));
+    const earned = r2(inv.reduce((t, i) => t + (i.subtotal || 0), 0));
+    const counts = d => !state.vatStart || (d || '') >= state.vatStart;
+    const vatOut = r2(inv.reduce((t, i) => t + (counts(i.issued) ? i.vat || 0 : 0), 0));
+    const hours = r2(inv.reduce((t, i) => t + (i.hours || 0), 0));
+    const exGross = r2(ex.reduce((t, e) => t + (e.amount || 0), 0));
+    const vatIn = r2(ex.reduce((t, e) => t + (counts(e.date) ? e.vat || 0 : 0), 0));
+    return { inv, ex, earned, vatOut, hours, exGross, vatIn, exNet: r2(exGross - vatIn), vatDue: r2(vatOut - vatIn) };
+  }
+  function monthHours(Q) {
+    const out = [0, 1, 2].map(k => ({ m: Q.q * 3 - 3 + k, h: 0 }));
+    for (const i of state.invoices.values()) for (const l of i.lines || []) {
+      if (l.kind !== 'shift' || !inQ(l.date, Q)) continue;
+      out[Number(l.date.slice(5, 7)) - 1 - (Q.q * 3 - 3)].h += l.qty || 0;
+    }
+    return out.map(o => ({ m: o.m, h: r2(o.h) }));
+  }
+
+  /* ---------- views ---------- */
+  function deadlineCard(Q) {
+    const t = today(), end = qEnd(Q), open = qOpen(Q), due = qDue(Q), key = qKey(Q), name = `Q${Q.q} ${Q.y}`;
+    if (state.vatStart && end < state.vatStart) return `<section class="deadline quiet"><div class="eyebrow">VAT return ${name}</div><div class="count"><b>None</b><span>to file</span></div><p>Your VAT registration starts ${nice(state.vatStart)}, so there is no return for this quarter.</p></section>`;
+    if (state.filed.get(key)) return `<section class="deadline done"><div class="eyebrow">VAT return ${name}</div><div class="count"><b>Filed</b></div><p>You marked this return as filed. It was due ${nice(due)}.</p><button class="ghost" type="button" data-act="unfile">Undo</button></section>`;
+    if (t > due) return `<section class="deadline late"><div class="eyebrow">VAT return ${name}</div><div class="count"><b>${days(due, t)}</b><span>days past the deadline</span></div><p>This return was due ${nice(due)}.</p><button class="ghost" type="button" data-act="file">Mark as filed</button></section>`;
+    const total = days(qStart(Q), due), pct = Math.max(0, Math.min(100, days(qStart(Q), t) / total * 100)), tick = days(qStart(Q), end) / total * 100;
+    const text = t <= end ? `The quarter runs until ${nice(end)}. File and pay between ${short(open)} and ${nice(due)}.` : `Filing is open. File and pay by ${nice(due)}.`;
+    return `<section class="deadline"><div class="eyebrow">VAT return ${name}</div><div class="count"><b>${days(t, due)}</b><span>days left to file and pay</span></div><p>${text}</p>
+      <div><div class="track"><i style="width:${pct.toFixed(1)}%"></i><u style="left:${tick.toFixed(1)}%"></u></div><div class="track-labels"><span>${short(qStart(Q))}</span><span>quarter ends ${short(end)}</span><span>${short(due)}</span></div></div>
+      ${t > end ? '<button class="ghost" type="button" data-act="file">Mark as filed</button>' : ''}</section>`;
+  }
+  function overview() {
+    const Q = state.Q, s = sums(Q), mh = monthHours(Q), cap = Math.max(40, ...mh.map(m => m.h)) * 1.05;
+    const back = s.vatDue < 0;
+    return deadlineCard(Q) + `
+    <section class="block"><h2>${back ? 'VAT to get back' : 'VAT to pay'}</h2>
+      <div class="big tax">${eur(Math.abs(s.vatDue))}</div>
+      <div class="rows">
+        <div><span>VAT on your invoices</span><span>${eur(s.vatOut)}</span></div>
+        <div><span>VAT on your expenses</span><span>&minus; ${eur(s.vatIn)}</span></div>
+      </div>
+      <div class="small muted">Invoices count in the quarter of their invoice date, expenses in the quarter of their receipt date.${state.vatStart && state.vatStart > qStart(Q) ? ` VAT counts from ${nice(state.vatStart)}, when your registration started.` : ''}</div>
+    </section>
+    <section class="block"><h2>Earned this quarter</h2>
+      <div class="big">${eur(s.earned)}</div>
+      <div class="small muted">Excluding VAT, from ${s.inv.length} invoice${s.inv.length === 1 ? '' : 's'}.</div>
+      <div class="stats">
+        <div><b>${hrs(s.hours)}</b><span>hours invoiced</span></div>
+        <div><b>${s.hours ? eur(s.earned / s.hours) : '&ndash;'}</b><span>per hour</span></div>
+        <div><b>${eur(r2(s.earned - s.exNet))}</b><span>after expenses</span></div>
+      </div>
+    </section>
+    <section class="block"><h2>Hours by month worked</h2>
+      <div class="months">${mh.map(m => `<div class="month"><span>${MON[m.m]}</span><div class="bar"><i class="${m.h ? '' : 'zero'}" style="width:${(m.h / cap * 100).toFixed(1)}%"></i><u style="left:${(32 / cap * 100).toFixed(1)}%"></u></div><span class="v">${hrs(m.h)}</span></div>`).join('')}</div>
+      <div class="small muted">Counted on the day of each shift. The line marks 32 hours.</div>
+    </section>`;
+  }
+  function invoiceItem(i) {
+    const shifts = (i.lines || []).filter(l => l.kind === 'shift');
+    const venues = [...new Set(shifts.map(l => l.venue).filter(Boolean))].join(' · ') || 'Invoice';
+    const openNow = state.open === i.number, busy = state.busy === 'pdf:' + i.number;
+    let h = `<div class="item"><button class="head" type="button" data-act="toggle" data-id="${esc(i.number)}" aria-expanded="${openNow}">
+      <span class="t">${esc(venues)}</span><span class="a">${eur(i.total)}</span>
+      <span class="s">#${esc(i.number.split('-').pop())} · ${i.issued ? nice(i.issued) : 'no date'} ${i.vat ? `<span class="chip">VAT ${eur(i.vat)}</span>` : '<span class="chip plain">no VAT</span>'}${i.check ? ' <span class="chip bad">check the PDF</span>' : ''}</span><span class="s2">${hrs(i.hours)}</span></button>`;
+    if (openNow) {
+      h += `<div class="detail">${(i.lines || []).map(l => l.kind === 'shift'
+        ? `<div class="shift"><span class="w">${esc(l.what || 'Shift')}</span><span class="m">${eur(l.amount)}</span><span class="d">${esc(l.venue)} · ${short(l.date)}, ${esc(l.start)}&ndash;${esc(l.end)} · ${hrs(l.qty)} &times; ${eur(l.rate)}</span></div>`
+        : `<div class="shift"><span class="w">${esc(l.what)}</span><span class="m">${eur(l.amount)}</span></div>`).join('')}
+        <div class="rows"><div><span>Subtotal</span><span>${eur(i.subtotal)}</span></div><div><span>VAT</span><span>${eur(i.vat)}</span></div><div class="sum"><span>Total</span><span>${eur(i.total)}</span></div></div>
+        <div class="actions">${i.pdf ? `<a class="btn" href="/_blob/${esc(i.pdf)}" target="_blank" rel="noopener">Open PDF</a>${downloads ? `<button class="btn" type="button" data-act="savepdf" data-id="${esc(i.number)}" ${busy ? 'disabled' : ''}>${busy ? 'Preparing' : 'Save PDF'}</button>` : ''}` : '<span class="small muted">The PDF is not stored yet.</span>'}</div>
+      </div>`;
+    }
+    return h + '</div>';
+  }
+  function invoices() {
+    const Q = state.Q, all = state.invScope === 'all';
+    const list = all ? invList() : sums(Q).inv, withPdf = list.filter(i => i.pdf);
+    const label = all ? 'all invoices' : `Q${Q.q} ${Q.y}`, busy = state.busy === 'merge';
+    return `<div class="seg"><button type="button" data-act="scope" data-v="q" aria-pressed="${!all}">Q${Q.q} ${Q.y}</button><button type="button" data-act="scope" data-v="all" aria-pressed="${all}">All invoices</button></div>
+    <div class="list">${list.length ? list.map(invoiceItem).join('') : `<div class="empty">No invoices dated in ${esc(label)}. New ones from Clevergig appear here after an email check.</div>`}</div>
+    ${downloads && withPdf.length ? `<button class="btn wide" type="button" data-act="merge" ${busy ? 'disabled' : ''}>${busy ? 'Putting the PDFs together' : `Save ${withPdf.length} PDF${withPdf.length === 1 ? '' : 's'} as one file`}</button><div class="small muted">One PDF with every invoice in ${esc(label)}, oldest first. Handy for DUO.</div>` : ''}`;
+  }
+  const isImg = e => /^image\//.test(e.receiptType || '');
+  const fileType = f => f.type && /^(image\/(png|jpeg|webp)|application\/pdf)$/.test(f.type) ? f.type : /\.pdf$/i.test(f.name) ? 'application/pdf' : /\.png$/i.test(f.name) ? 'image/png' : /\.webp$/i.test(f.name) ? 'image/webp' : 'image/jpeg';
+  const fileErr = e => e && e.code === 'too_large' ? 'That file is too big. Keep it under 20 MB.' : e && e.code === 'unsupported_type' ? 'Use a JPG or PNG photo, or a PDF, for the receipt.' : 'Saving did not work. Check your connection and try again.';
+  function expenses() {
+    const Q = state.Q, s = sums(Q), formOpen = !$('exForm').hidden;
+    return `<section class="block"><h2>Expenses Q${Q.q} ${Q.y}</h2>
+      <div class="big">${eur(s.exGross)}</div>
+      <div class="rows"><div><span>VAT you take off</span><span>${eur(s.vatIn)}</span></div><div><span>Cost excluding VAT</span><span>${eur(s.exNet)}</span></div></div>
+    </section>
+    ${formOpen ? '' : '<button class="btn primary wide" type="button" data-act="addex">Add an expense</button>'}
+    <div class="list">${s.ex.length ? s.ex.map(e => `<div class="item"><div class="head" style="display:grid;grid-template-columns:1fr auto;gap:2px 12px;padding:13px 16px">
+        <span class="t">${esc(e.what)}</span><span class="a">${eur(e.amount)}</span>
+        <span class="s">${nice(e.date)} ${e.vat ? `<span class="chip">VAT ${eur(e.vat)}</span>` : '<span class="chip plain">no VAT</span>'}</span><span class="s2"></span>${e.note ? `<span class="s" style="grid-column:1/-1">${esc(e.note)}</span>` : ''}</div>
+        <div class="detail">${e.receipt && isImg(e) && state.zoom === e.id ? `<img class="receipt-full" src="/_blob/${esc(e.receipt)}" alt="Receipt for ${esc(e.what)}">` : ''}<div class="actions" style="align-items:center">${e.receipt ? (isImg(e) ? `<button class="thumb" type="button" data-act="zoom" data-id="${esc(e.id)}" aria-label="${state.zoom === e.id ? 'Hide' : 'Show'} the receipt"><img src="/_blob/${esc(e.receipt)}" alt=""></button>` : '') + `<a class="btn" href="/_blob/${esc(e.receipt)}" target="_blank" rel="noopener">Open receipt</a>` : assets ? `<button class="btn" type="button" data-act="addrc" data-id="${esc(e.id)}" ${state.busy === 'rc:' + e.id ? 'disabled' : ''}>${state.busy === 'rc:' + e.id ? 'Uploading' : 'Add receipt'}</button>` : '<span class="small muted">No receipt attached.</span>'}${state.confirmDel === e.id ? `<button class="btn danger" type="button" data-act="delyes" data-id="${esc(e.id)}">Yes, delete it</button><button class="btn" type="button" data-act="delno">Keep</button>` : `<button class="btn" type="button" data-act="del" data-id="${esc(e.id)}">Delete</button>`}</div></div></div>`).join('')
+      : '<div class="empty">Nothing written off this quarter yet. Add a receipt and its VAT comes off what you pay.</div>'}</div>`;
+  }
+  function render() {
+    const Q = state.Q;
+    $('qLabel').textContent = `Q${Q.q} ${Q.y}`;
+    $('qSub').textContent = `${MON[Q.q * 3 - 3]} to ${MON[Q.q * 3 - 1]}`;
+    document.querySelectorAll('nav.tabs button').forEach(b => b.setAttribute('aria-current', b.dataset.tab === state.tab ? 'page' : 'false'));
+    if (state.tab !== 'expenses') $('exForm').hidden = true;
+    const v = $('view');
+    if (!state.loaded) { v.innerHTML = '<div class="list"><div class="empty">Loading your invoices and expenses.</div></div>'; return; }
+    v.innerHTML = state.tab === 'invoices' ? invoices() : state.tab === 'expenses' ? expenses() : overview();
+  }
+
+  /* ---------- PDFs ---------- */
+  const loaded = {};
+  function loadScript(src) { return loaded[src] || (loaded[src] = new Promise((ok, no) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => { delete loaded[src]; no(new Error('Could not load ' + src)); }; document.head.appendChild(s); })); }
+  const CDN = 'https://cdnjs.cloudflare.com/ajax/libs/';
+  async function pdfjs() { await loadScript(CDN + 'pdf.js/3.11.174/pdf.min.js'); await loadScript(CDN + 'pdf.js/3.11.174/pdf.worker.min.js'); return window.pdfjsLib; }
+  async function blobOf(id) { const r = await fetch('/_blob/' + id); if (!r.ok) throw new Error('The stored PDF could not be read.'); return r; }
+  function saveErr(e) { if (e && e.code === 'declined') return; toast(e && e.code === 'rate_limited' ? 'A save is already open. Finish that one first.' : (e && e.message) || 'Saving did not work here.'); }
+  async function savePdf(id) {
+    const i = state.invoices.get(id); if (!i || !i.pdf || !downloads) return;
+    state.busy = 'pdf:' + id; render();
+    try { const blob = await (await blobOf(i.pdf)).blob(); await downloads.save({ filename: `Invoice_${i.number}.pdf`, data: blob }); toast('Saved'); } catch (e) { saveErr(e); }
+    state.busy = null; render();
+  }
+  async function mergePdfs() {
+    const Q = state.Q, all = state.invScope === 'all';
+    const list = (all ? invList() : sums(Q).inv).filter(i => i.pdf).reverse();
+    if (!list.length || !downloads) return;
+    state.busy = 'merge'; render();
+    try {
+      await loadScript(CDN + 'pdf-lib/1.17.1/pdf-lib.min.js');
+      const out = await PDFLib.PDFDocument.create();
+      for (const i of list) { const src = await PDFLib.PDFDocument.load(await (await blobOf(i.pdf)).arrayBuffer()); (await out.copyPages(src, src.getPageIndices())).forEach(p => out.addPage(p)); }
+      const bytes = await out.save();
+      await downloads.save({ filename: all ? 'Invoices_all.pdf' : `Invoices_${Q.y}-Q${Q.q}.pdf`, data: new Blob([bytes], { type: 'application/pdf' }) });
+      toast('Saved');
+    } catch (e) { saveErr(e); }
+    state.busy = null; render();
+  }
+
+  /* ---------- email ---------- */
+  let syncing = false;
+  function syncLabel(text, showBtn) { $('syncText').textContent = text; $('syncBtn').hidden = !showBtn; }
+  function mcpMessage(e) {
+    switch (e && e.code) {
+      case 'needs_reauth': return 'Gmail needs reconnecting. Do that in Claude under Settings, Connectors.';
+      case 'server_not_connected': case 'selection_required': return 'Gmail is not connected here. Add it in Claude under Settings, Connectors.';
+      case 'not_in_manifest': case 'approval_required': case 'consent_required': case 'not_granted': return 'Gmail is not allowed for this page yet. Tap Check email and allow it.';
+      case 'blocked_by_policy': return 'Gmail is blocked for this page.';
+      case 'server_unavailable': case 'rate_limited': return 'Gmail did not answer. Try again in a minute.';
+      default: return 'The email check did not work this time.';
+    }
+  }
+  async function importOne(number, msg) {
+    const base = { number, msgId: msg.id, addedAt: new Date().toISOString(), source: 'email' };
+    const mailDate = msg.internalDate ? isoOf(new Date(Number(msg.internalDate))) : today();
+    let doc;
+    try {
+      const res = await mcp.callTool('Gmail', 'get_message', { messageId: msg.id, messageFormat: 'RAW' }, { cache: false });
+      const raw = res && res.payload && res.payload.raw;
+      const pdf = raw ? Inv.pdfFromRaw(raw) : null;
+      if (!pdf) throw Object.assign(new Error('no pdf'), { soft: true });
+      const p = Inv.parse(await Inv.pdfText(pdf, await pdfjs()));
+      let pdfId = null;
+      if (assets) { try { pdfId = (await assets.upload(new Blob([pdf], { type: 'application/pdf' }), { type: 'application/pdf' })).id; } catch (e) {} }
+      doc = { ...base, issued: p.issued || mailDate, hours: p.hours, subtotal: p.subtotal, vat: p.vat, total: p.total, lines: p.lines, check: p.check || p.number !== number, pdf: pdfId };
+    } catch (e) {
+      if (e && e.code) throw e;
+      doc = { ...base, issued: mailDate, hours: 0, subtotal: 0, vat: 0, total: 0, lines: [], check: true, pdf: null };
+    }
+    await db.doc('invoices/' + number).set(doc);
+  }
+  async function syncEmail(manual) {
+    if (syncing || !db || !state.loaded) return;
+    if (!mcp) { syncLabel('Email check is not available in this view', false); return; }
+    syncing = true; syncLabel('Checking email', false);
+    try {
+      const found = new Map(); let token, pages = 0;
+      do {
+        const res = await mcp.callTool('Gmail', 'search_threads', Object.assign({ query: 'from:no-reply@clevergig.nl subject:factuur', pageSize: 50 }, token ? { pageToken: token } : {}), { cache: false });
+        const p = (res && res.payload) || {};
+        for (const t of p.threads || []) for (const m of t.messages || []) {
+          const mm = /factuur\s+(\d{4}-\d+-\d+)/i.exec(m.subject || ''); if (!mm) continue;
+          const prev = found.get(mm[1]); if (!prev || Number(m.internalDate) > Number(prev.internalDate)) found.set(mm[1], m);
+        }
+        token = p.nextPageToken;
+      } while (token && ++pages < 5);
+      const fresh = [...found].filter(([n]) => !state.invoices.has(n)).sort((a, b) => a[0].localeCompare(b[0]));
+      let done = 0;
+      for (const [n, m] of fresh) { syncLabel(`Reading invoice ${done + 1} of ${fresh.length}`, false); await importOne(n, m); done++; }
+      lsSet('kb.synced', String(Date.now()));
+      syncLabel(done ? `${done} new invoice${done === 1 ? '' : 's'} added` : 'Email checked, nothing new', true);
+      notice('');
+    } catch (e) {
+      syncLabel('Email not checked', true); notice(mcpMessage(e), true);
+    }
+    syncing = false;
+  }
+
+  /* ---------- expenses ---------- */
+  const money = v => { const n = parseFloat(String(v).trim().replace(/\s/g, '').replace(',', '.')); return isFinite(n) ? r2(n) : NaN; };
+  function autoVat() {
+    const rate = $('exRate').value, amt = money($('exAmount').value);
+    $('exVat').readOnly = rate !== 'custom';
+    if (rate !== 'custom') $('exVat').value = isFinite(amt) ? r2(amt * Number(rate) / (100 + Number(rate))).toFixed(2).replace('.', ',') : '';
+  }
+  function openForm() { const f = $('exForm'); f.reset(); $('exDate').value = today(); $('exErr').hidden = true; $('exFileField').hidden = !assets; autoVat(); f.hidden = false; render(); $('exWhat').focus(); }
+  async function saveExpense(ev) {
+    ev.preventDefault();
+    const what = $('exWhat').value.trim(), date = $('exDate').value, amount = money($('exAmount').value), vat = money($('exVat').value || '0');
+    const err = !what ? 'Say what the expense was.' : !/^\d{4}-\d{2}-\d{2}$/.test(date) ? 'Pick the date on the receipt.' : !(amount > 0) ? 'Fill in what you paid, for example 24,95.' : !(vat >= 0 && vat <= amount) ? 'The VAT amount has to be between zero and what you paid.' : '';
+    $('exErr').textContent = err; $('exErr').hidden = !err; if (err) return;
+    $('exSave').disabled = true;
+    try {
+      let receipt = null, receiptType = null; const file = $('exFile').files && $('exFile').files[0];
+      if (file && assets) { receiptType = fileType(file); receipt = (await assets.upload(file, { type: receiptType })).id; }
+      await db.collection('expenses').add({ what, note: $('exNote').value.trim(), date, amount, vat, rate: $('exRate').value, receipt, receiptType, createdAt: new Date().toISOString() });
+      $('exForm').hidden = true; state.Q = qOf(date); toast('Expense saved'); render();
+    } catch (e) {
+      $('exErr').textContent = fileErr(e); $('exErr').hidden = false;
+    }
+    $('exSave').disabled = false;
+  }
+
+  /* ---------- events ---------- */
+  $('qPrev').onclick = () => { state.Q = qShift(state.Q, -1); state.open = null; render(); };
+  $('qNext').onclick = () => { state.Q = qShift(state.Q, 1); state.open = null; render(); };
+  $('syncBtn').onclick = () => syncEmail(true);
+  $('exForm').addEventListener('submit', saveExpense);
+  $('exCancel').onclick = () => { $('exForm').hidden = true; render(); };
+  $('rcFile').onchange = async () => {
+    const file = $('rcFile').files && $('rcFile').files[0], id = state.rcFor; $('rcFile').value = '';
+    if (!file || !id || !assets || !state.expenses.has(id)) return;
+    state.busy = 'rc:' + id; render();
+    try { const receiptType = fileType(file); const up = await assets.upload(file, { type: receiptType }); await db.doc('expenses/' + id).update({ receipt: up.id, receiptType }); toast('Receipt attached'); }
+    catch (e) { toast(fileErr(e)); }
+    state.busy = null; render();
+  };
+  $('exRate').onchange = autoVat; $('exAmount').oninput = autoVat;
+  document.querySelector('nav.tabs').addEventListener('click', e => { const b = e.target.closest('button[data-tab]'); if (!b) return; state.tab = b.dataset.tab; lsSet('kb.tab', state.tab); window.scrollTo(0, 0); render(); });
+  $('view').addEventListener('click', async e => {
+    const b = e.target.closest('[data-act]'); if (!b) return;
+    const act = b.dataset.act, id = b.dataset.id, key = qKey(state.Q);
+    try {
+      if (act === 'toggle') { state.open = state.open === id ? null : id; render(); }
+      else if (act === 'scope') { state.invScope = b.dataset.v; render(); }
+      else if (act === 'savepdf') savePdf(id);
+      else if (act === 'merge') mergePdfs();
+      else if (act === 'addex') openForm();
+      else if (act === 'zoom') { state.zoom = state.zoom === id ? null : id; render(); }
+      else if (act === 'addrc') { state.rcFor = id; $('rcFile').click(); }
+      else if (act === 'del') { state.confirmDel = id; render(); }
+      else if (act === 'delno') { state.confirmDel = null; render(); }
+      else if (act === 'delyes') { const ex = state.expenses.get(id); state.confirmDel = null; await db.doc('expenses/' + id).delete(); if (ex && ex.receipt && assets) assets.delete(ex.receipt).catch(() => {}); toast('Expense deleted'); }
+      else if (act === 'file') { await db.doc('quarters/' + key).set({ filed: true, filedAt: new Date().toISOString() }); toast('Marked as filed'); }
+      else if (act === 'unfile') { await db.doc('quarters/' + key).set({ filed: false }); }
+    } catch (err) { toast('That did not save. Try again.'); }
+  });
+
+  /* ---------- start ---------- */
+  render();
+  (async () => {
+    const use = n => (window.claude && window.claude.use ? window.claude.use(n).catch(() => null) : Promise.resolve(null));
+    [db, assets, downloads, mcp] = await Promise.all([use('db'), use('assets'), use('downloads'), use('mcp')]);
+    if (!db) { state.loaded = true; render(); syncLabel('', false); notice('Your books are not reachable in this view. Open this page in Claude while signed in.', true); return; }
+    let first = false;
+    const slow = setTimeout(() => { if (!first) notice('Your data has not arrived yet. It will show up here as soon as it does.'); }, 10000);
+    const dead = () => { clearTimeout(slow); state.loaded = true; render(); notice('Your books could not be loaded. Reload the page to try again.', true); };
+    const sub = (name, map, after) => db.collection(name).onSnapshot(snap => {
+      map.clear(); snap.docs.forEach(d => map.set(d.id, Object.assign({ id: d.id }, d.data())));
+      if (after) after(snap); render();
+    }, dead);
+    sub('expenses', state.expenses);
+    db.doc('settings/vat').onSnapshot(d => { const v = d.exists ? (d.data() || {}).start : null; state.vatStart = /^\d{4}-\d{2}-\d{2}$/.test(v || '') ? v : null; render(); }, () => {});
+    db.collection('quarters').onSnapshot(snap => { state.filed.clear(); snap.docs.forEach(d => state.filed.set(d.id, !!(d.data() || {}).filed)); render(); }, () => {});
+    sub('invoices', state.invoices, snap => {
+      state.invoices.forEach(i => { i.number = i.number || i.id; });
+      if (first || snap.metadata.fromCache) { if (!first && snap.size) state.loaded = true; return; }
+      first = true; clearTimeout(slow); state.loaded = true; notice('');
+      syncLabel(mcp ? 'Email not checked yet' : 'Email check is not available in this view', !!mcp);
+      syncEmail(false);
+    });
+  })();
+})();
+</script>
