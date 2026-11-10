@@ -148,6 +148,10 @@ nav.tabs div { grid-template-columns: repeat(4, 1fr) }
 .inline { display: flex; gap: 8px }
 .inline input { flex: 1; min-width: 0; min-height: 42px; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--bg); font-size: 16px }
 .steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 14px }
+.tapbig { background: none; border: 0; padding: 0; text-align: left; display: flex; align-items: baseline; gap: 10px; width: 100% }
+.tapbig i { font: 500 13px var(--sans); font-style: normal; color: var(--accent); letter-spacing: 0; white-space: nowrap }
+.month.wide { grid-template-columns: 52px 1fr 88px }
+.back { align-self: flex-start; font-size: 14px }
 /* Opening screen: brand green in both themes, shown for a moment on a cold start. */
 #splash { position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 24px;
   background: radial-gradient(120% 80% at 50% 38%, #0E5741, #04211A); color: #FCFDFA; text-align: center; transition: opacity .35s ease }
@@ -423,7 +427,7 @@ const Inv = (() => {
       <div class="small muted">Invoices count in the quarter of their invoice date, expenses in the quarter of their receipt date.${S.vatStart && S.vatStart > qStart(Q) ? ` VAT counts from ${nice(S.vatStart)}, when your registration started.` : ''}</div>
     </section>
     <section class="block"><h2>Earned this quarter</h2>
-      <div class="big">${eur(s.earned)}</div>
+      <button class="big tapbig" type="button" data-act="earnings" aria-label="${eur(s.earned)} earned this quarter. Show all earnings">${eur(s.earned)}<i>All earnings &rsaquo;</i></button>
       <div class="small muted">Excluding VAT, from ${s.inv.length} invoice${s.inv.length === 1 ? '' : 's'}.</div>
       <div class="stats">
         <div><b>${hrs(s.hours)}</b><span>hours invoiced</span></div>
@@ -434,6 +438,60 @@ const Inv = (() => {
     <section class="block"><h2>Hours by month worked</h2>
       <div class="months">${mh.map(m => `<div class="month"><span>${MON[m.m]}</span><div class="bar"><i class="${m.h ? '' : 'zero'}" style="width:${(m.h / cap * 100).toFixed(1)}%"></i>${mark ? `<u style="left:${(mark / cap * 100).toFixed(1)}%"></u>` : ''}</div><span class="v">${hrs(m.h)}</span></div>`).join('')}</div>
       <div class="small muted">Counted on the day of each shift where the invoice lists them.${mark ? ` The line marks ${mark} hours.` : ''}</div>
+    </section>`;
+  }
+  /* Earnings by the day worked: each shift on its own date, extras on the date of the shift above them.
+     Invoices without shift lines (other layouts, or numbers edited by hand) count on their invoice date. */
+  function workEntries() {
+    const out = [];
+    for (const i of state.invoices.values()) {
+      const lines = i.edited ? [] : (i.lines || []);
+      if (!lines.length) { if (i.issued) out.push({ date: i.issued, amount: i.subtotal || 0, hours: i.hours || 0 }); continue; }
+      let last = null;
+      for (const l of lines) { if (l.kind === 'shift') last = l.date; out.push({ date: (l.kind === 'shift' ? l.date : last) || i.issued, amount: l.amount || 0, hours: l.kind === 'shift' ? l.qty || 0 : 0 }); }
+    }
+    return out;
+  }
+  function earnings() {
+    const E = workEntries(), t = today(), back = '<button class="linkbtn back" type="button" data-act="back">&lsaquo; Back to overview</button>';
+    if (!E.length) return back + '<div class="list"><div class="empty">No earnings yet. They appear here as soon as your first invoice is in.</div></div>';
+    const tot = (a, b) => { let e = 0, h = 0; for (const x of E) if (x.date >= a && x.date <= b) { e += x.amount; h += x.hours; } return { e: r2(e), h: r2(h) }; };
+    const addDays = (iso, n) => isoOf(new Date(utc(iso) + n * 864e5));
+    const mEnd = (yy, mm) => isoOf(new Date(Date.UTC(yy, mm, 0)));
+    const all = tot('0000', '9999'), first = E.reduce((m, x) => (x.date < m ? x.date : m), '9999');
+    const mon = addDays(t, -((new Date(utc(t)).getUTCDay() + 6) % 7));
+    const [y, m] = t.split('-').map(Number), pm = m === 1 ? { y: y - 1, m: 12 } : { y, m: m - 1 };
+    const recent = [
+      [`This week, ${short(mon)} to ${short(addDays(mon, 6))}`, tot(mon, addDays(mon, 6))],
+      [`Last week, ${short(addDays(mon, -7))} to ${short(addDays(mon, -1))}`, tot(addDays(mon, -7), addDays(mon, -1))],
+      [`${MON[m - 1]} ${y} so far`, tot(`${y}-${pad(m)}-01`, mEnd(y, m))],
+      [`${MON[pm.m - 1]} ${pm.y}`, tot(`${pm.y}-${pad(pm.m)}-01`, mEnd(pm.y, pm.m))],
+    ];
+    const years = [...new Set(E.map(x => x.date.slice(0, 4)))].sort().reverse().map(yy => [yy, tot(`${yy}-01-01`, `${yy}-12-31`)]);
+    const months = [];
+    for (let k = 11; k >= 0; k--) {
+      const d = new Date(Date.UTC(y, m - 1 - k, 1)), yy = d.getUTCFullYear(), mm = d.getUTCMonth() + 1;
+      if (`${yy}-${pad(mm)}` >= first.slice(0, 7)) months.push({ label: `${MON[mm - 1]} ${String(yy).slice(2)}`, v: tot(`${yy}-${pad(mm)}-01`, mEnd(yy, mm)) });
+    }
+    const cap = Math.max(1, ...months.map(x => x.v.e)), n = state.invoices.size;
+    const row = ([label, v]) => `<div><span>${esc(label)}${v.h ? ` <small class="muted">· ${hrs(v.h)}</small>` : ''}</span><span>${eur(v.e)}</span></div>`;
+    return back + `
+    <section class="block"><h2>Earned all time</h2>
+      <div class="big">${eur(all.e)}</div>
+      <div class="small muted">Excluding VAT, since ${nice(first)}.</div>
+      <div class="stats">
+        <div><b>${hrs(all.h)}</b><span>hours worked</span></div>
+        <div><b>${all.h ? eur(all.e / all.h) : '&ndash;'}</b><span>per hour</span></div>
+        <div><b>${n}</b><span>invoice${n === 1 ? '' : 's'}</span></div>
+      </div>
+    </section>
+    <section class="block"><h2>Lately</h2>
+      <div class="rows">${recent.map(row).join('')}</div>
+      <div class="small muted">Counted on the day you worked. A shift shows up here once its invoice has arrived, so the current week usually fills in a week later.</div>
+    </section>
+    <section class="block"><h2>By year</h2><div class="rows">${years.map(row).join('')}</div></section>
+    <section class="block"><h2>By month</h2>
+      <div class="months">${months.map(x => `<div class="month wide"><span>${x.label}</span><div class="bar"><i class="${x.v.e ? '' : 'zero'}" style="width:${(x.v.e / cap * 100).toFixed(1)}%"></i></div><span class="v">${eur(x.v.e)}</span></div>`).join('')}</div>
     </section>`;
   }
   function invoiceItem(i) {
@@ -519,14 +577,15 @@ const Inv = (() => {
   function render() {
     const Q = state.Q;
     $('qLabel').textContent = `Q${Q.q} ${Q.y}`; $('qSub').textContent = `${MON[Q.q * 3 - 3]} to ${MON[Q.q * 3 - 1]}`;
-    $('qnav').hidden = state.tab === 'setup';
+    const sub = state.tab === 'overview' && state.sub === 'earnings';
+    $('qnav').hidden = state.tab === 'setup' || sub;
     document.querySelectorAll('nav.tabs button').forEach(b => b.setAttribute('aria-current', b.dataset.tab === state.tab ? 'page' : 'false'));
     if (state.tab !== 'expenses') $('exForm').hidden = true;
     header();
     const v = $('view');
     if (!state.loaded) { v.innerHTML = '<div class="list"><div class="empty">Loading your invoices and expenses.</div></div>'; return; }
     if (state.failed) { v.innerHTML = '<div class="list"><div class="empty">This browser will not let the app store data. Leave private browsing, or try another browser.</div></div>'; return; }
-    v.innerHTML = state.tab === 'invoices' ? invoices() : state.tab === 'expenses' ? expenses() : state.tab === 'setup' ? setup() : overview();
+    v.innerHTML = state.tab === 'invoices' ? invoices() : state.tab === 'expenses' ? expenses() : state.tab === 'setup' ? setup() : sub ? earnings() : overview();
     v.querySelectorAll('img[data-file]').forEach(async img => { const u = await fileUrl(img.dataset.file); if (u) img.src = u; });
   }
 
@@ -689,13 +748,15 @@ const Inv = (() => {
     try { ex.receiptType = fileType(file); ex.receipt = await putFile(file, ex.receiptType, file.name); await DB.put('expenses', ex.id, ex); toast('Receipt attached'); } catch (e) { toast('The receipt could not be stored.'); }
     render();
   };
-  document.querySelector('nav.tabs').addEventListener('click', e => { const b = e.target.closest('button[data-tab]'); if (!b) return; state.tab = b.dataset.tab; lsSet('kb.tab', state.tab); state.wipe = false; notice(''); window.scrollTo(0, 0); render(); });
+  document.querySelector('nav.tabs').addEventListener('click', e => { const b = e.target.closest('button[data-tab]'); if (!b) return; state.tab = b.dataset.tab; lsSet('kb.tab', state.tab); state.sub = null; state.wipe = false; notice(''); window.scrollTo(0, 0); render(); });
   $('view').addEventListener('click', async e => {
     const b = e.target.closest('[data-act]'); if (!b) return;
     const act = b.dataset.act, id = b.dataset.id, S = state.settings, key = qKey(state.Q);
     try {
       if (act === 'toggle') { state.open = state.open === id ? null : id; state.editInv = null; state.confirmDel = null; }
       else if (act === 'scope') state.invScope = b.dataset.v;
+      else if (act === 'earnings') { state.sub = 'earnings'; window.scrollTo(0, 0); }
+      else if (act === 'back') { state.sub = null; window.scrollTo(0, 0); }
       else if (act === 'gosetup') { state.tab = 'setup'; lsSet('kb.tab', 'setup'); }
       else if (act === 'openpdf') return openFile(state.invoices.get(id).pdf);
       else if (act === 'savepdf') { const i = state.invoices.get(id), blob = await fileBlob(i.pdf); return blob ? saveBlob(blob, `Invoice_${i.id}.pdf`) : toast('That file is no longer on this device.'); }
