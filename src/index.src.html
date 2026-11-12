@@ -24,6 +24,39 @@ nav.tabs div { grid-template-columns: repeat(4, 1fr) }
 .inline { display: flex; gap: 8px }
 .inline input { flex: 1; min-width: 0; min-height: 42px; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--bg); font-size: 16px }
 .steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 14px }
+#view { display: flex; flex-direction: column; gap: 14px }
+nav.tabs .brand, header.top h1 .d { display: none }
+@media (hover: hover) {
+  .btn:hover:not(:disabled), .chips button:hover { border-color: var(--muted) }
+  nav.tabs button:hover { color: var(--ink) }
+  .item > button.head:hover { background: color-mix(in srgb, var(--ink) 4%, transparent) }
+}
+/* Computer screens: the tab bar becomes a sidebar and the cards sit side by side. Same page, same data. */
+@media (min-width: 900px) {
+  nav.tabs { top: 0; right: auto; width: 232px; border-top: 0; border-right: 1px solid var(--line); padding: 24px 14px; display: flex; flex-direction: column; gap: 26px }
+  nav.tabs .brand { display: flex; align-items: center; gap: 12px; padding: 0 8px; font-weight: 600; font-size: 17px; letter-spacing: -.01em }
+  nav.tabs .brand img { width: 38px; height: 38px; border-radius: 9px }
+  nav.tabs div { max-width: none; margin: 0; display: flex; flex-direction: column; gap: 4px }
+  nav.tabs button { text-align: left; padding: 11px 14px; font-size: 15px }
+  .wrap { max-width: 1180px; margin: 0 0 0 232px; padding: 30px 40px 56px; gap: 18px }
+  header.top h1 { font-size: 26px }
+  header.top h1 .m { display: none }
+  header.top h1 .d { display: inline }
+  .qnav { width: 320px }
+  .notice, form.sheet { max-width: 640px }
+  #view.v-overview, #view.v-earnings, #view.v-setup { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px }
+  #view .span, #view.v-setup > p, #view.v-earnings > .back { grid-column: 1 / -1 }
+  #view.v-earnings > .back { justify-self: start }
+  #view.v-invoices, #view.v-expenses { max-width: 900px }
+  .seg { max-width: 360px }
+  .btn.wide { width: auto; align-self: flex-start }
+  .block { padding: 20px }
+  .deadline { padding: 22px }
+  .item > button.head { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.6fr) 84px 116px; grid-template-areas: "t s h a"; align-items: center; gap: 18px; padding: 14px 20px }
+  .item > button.head .t { grid-area: t } .item > button.head .s { grid-area: s } .item > button.head .s2 { grid-area: h } .item > button.head .a { grid-area: a }
+  .detail { padding: 0 20px 18px; max-width: 640px }
+  .toast { left: calc(50% + 116px); bottom: 28px }
+}
 .tapbig { background: none; border: 0; padding: 0; text-align: left; display: flex; align-items: baseline; gap: 10px; width: 100% }
 .tapbig i { font: 500 13px var(--sans); font-style: normal; color: var(--accent); letter-spacing: 0; white-space: nowrap }
 .month.wide { grid-template-columns: 52px 1fr 88px }
@@ -46,7 +79,7 @@ if (/(^|[#&])(access_token|error)=/.test(location.hash)) document.getElementById
 </script>
 <div class="wrap">
   <header class="top">
-    <h1>Gig Kasboek</h1>
+    <h1><span class="m">Gig Kasboek</span><span class="d" id="pageTitle"></span></h1>
     <div class="sync"><span id="syncText"></span><button class="linkbtn" id="syncBtn" type="button" hidden>Check email</button></div>
   </header>
   <div class="qnav" id="qnav">
@@ -55,7 +88,7 @@ if (/(^|[#&])(access_token|error)=/.test(location.hash)) document.getElementById
     <button type="button" id="qNext" aria-label="Next quarter">&#8250;</button>
   </div>
   <div id="notice" class="notice" hidden></div>
-  <main id="view" style="display:flex;flex-direction:column;gap:14px"></main>
+  <main id="view"></main>
   <form class="sheet" id="exForm" hidden novalidate>
     <div class="eyebrow">New expense</div>
     <div class="field"><label for="exWhat">What was it</label><input id="exWhat" autocomplete="off" placeholder="Work shoes, train ticket"></div>
@@ -73,7 +106,7 @@ if (/(^|[#&])(access_token|error)=/.test(location.hash)) document.getElementById
     <div class="actions"><button class="btn primary" type="submit" id="exSave">Save expense</button><button class="btn" type="button" id="exCancel">Cancel</button></div>
   </form>
 </div>
-<nav class="tabs"><div>
+<nav class="tabs"><span class="brand"><img src="icon-192.png" alt="" width="38" height="38">Gig Kasboek</span><div>
   <button type="button" data-tab="overview">Overview</button>
   <button type="button" data-tab="invoices">Invoices</button>
   <button type="button" data-tab="expenses">Expenses</button>
@@ -213,7 +246,7 @@ if (/(^|[#&])(access_token|error)=/.test(location.hash)) document.getElementById
   function overview() {
     const Q = state.Q, s = sums(Q), mh = monthHours(Q), S = state.settings, mark = S.hoursMark > 0 ? S.hoursMark : 0;
     const cap = Math.max(mark * 1.25, 10, ...mh.map(m => m.h)) * 1.05, back = s.vatDue < 0;
-    const start = !state.invoices.size ? `<section class="block"><h2>Start here</h2><ol class="steps"><li>Under Setup, add the email address your invoices come from.</li><li>${CLIENT ? 'Connect your Gmail there, or add invoice PDFs by hand under Invoices.' : 'Add your invoice PDFs under Invoices.'}</li></ol><button class="btn primary" type="button" data-act="gosetup">Open Setup</button></section>` : '';
+    const start = !state.invoices.size ? `<section class="block span"><h2>Start here</h2><ol class="steps"><li>Under Setup, add the email address your invoices come from.</li><li>${CLIENT ? 'Connect your Gmail there, or add invoice PDFs by hand under Invoices.' : 'Add your invoice PDFs under Invoices.'}</li></ol><button class="btn primary" type="button" data-act="gosetup">Open Setup</button></section>` : '';
     return start + deadlineCard(Q) + `
     <section class="block"><h2>${back ? 'VAT to get back' : 'VAT to pay'}</h2>
       <div class="big tax">${eur(Math.abs(s.vatDue))}</div>
@@ -377,6 +410,8 @@ if (/(^|[#&])(access_token|error)=/.test(location.hash)) document.getElementById
     $('qLabel').textContent = `Q${Q.q} ${Q.y}`; $('qSub').textContent = `${MON[Q.q * 3 - 3]} to ${MON[Q.q * 3 - 1]}`;
     const sub = state.tab === 'overview' && state.sub === 'earnings';
     $('qnav').hidden = state.tab === 'setup' || sub;
+    $('pageTitle').textContent = sub ? 'Earnings' : { overview: 'Overview', invoices: 'Invoices', expenses: 'Expenses', setup: 'Setup' }[state.tab];
+    $('view').className = sub ? 'v-earnings' : 'v-' + state.tab;
     document.querySelectorAll('nav.tabs button').forEach(b => b.setAttribute('aria-current', b.dataset.tab === state.tab ? 'page' : 'false'));
     if (state.tab !== 'expenses') $('exForm').hidden = true;
     header();
