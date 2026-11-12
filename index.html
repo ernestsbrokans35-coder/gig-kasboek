@@ -563,7 +563,8 @@ const Inv = (() => {
     </section>
     <section class="block"><h2>Start over</h2>
       <div class="actions">${state.wipe ? '<button class="btn danger" type="button" data-act="wipeyes">Yes, delete everything on this device</button><button class="btn" type="button" data-act="wipeno">Keep it</button>' : '<button class="btn" type="button" data-act="wipe">Delete everything</button>'}</div>
-    </section>`;
+    </section>
+    <p class="small muted" style="margin:0;text-align:center">Your data stays on this device. <a href="privacy.html" style="color:var(--accent)">Privacy</a></p>`;
   }
   function header() {
     const S = state.settings, n = state.invoices.size; let text = '', btn = '';

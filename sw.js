@@ -1,6 +1,6 @@
 /* Offline support: the app's own files come from the network when there is one and from the cache when there is not;
    the libraries and fonts it loads from CDNs are kept after first use. Nothing personal is ever cached here. */
-const CACHE = 'gig-kasboek-v4';
+const CACHE = 'gig-kasboek-v5';
 const SHELL = ['./', 'index.html', 'config.js', 'manifest.webmanifest', 'icon-192.png', 'icon-180.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
