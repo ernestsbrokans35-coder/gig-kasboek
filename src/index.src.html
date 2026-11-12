@@ -57,6 +57,13 @@ nav.tabs .brand, header.top h1 .d { display: none }
   .detail { padding: 0 20px 18px; max-width: 640px }
   .toast { left: calc(50% + 116px); bottom: 28px }
 }
+.box { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 2px 12px; padding: 11px 0; border-top: 1px solid var(--line); align-items: baseline }
+.box .n { font: 600 15px var(--mono); color: var(--tax) }
+.box .l small { display: block; color: var(--muted); font-size: 12.5px }
+.box .v { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; font-weight: 600 }
+.box .v small { display: block; font-weight: 400; color: var(--muted); font-size: 12px }
+.box.total { border-top: 2px solid var(--ink) }
+@media (min-width: 900px) { #view.v-vatreturn { max-width: 760px } }
 .tapbig { background: none; border: 0; padding: 0; text-align: left; display: flex; align-items: baseline; gap: 10px; width: 100% }
 .tapbig i { font: 500 13px var(--sans); font-style: normal; color: var(--accent); letter-spacing: 0; white-space: nowrap }
 .month.wide { grid-template-columns: 52px 1fr 88px }
@@ -255,6 +262,7 @@ if (/(^|[#&])(access_token|error)=/.test(location.hash)) document.getElementById
         <div><span>VAT on your expenses</span><span>&minus; ${eur(s.vatIn)}</span></div>
       </div>
       <div class="small muted">Invoices count in the quarter of their invoice date, expenses in the quarter of their receipt date.${S.vatStart && S.vatStart > qStart(Q) ? ` VAT counts from ${nice(S.vatStart)}, when your registration started.` : ''}</div>
+      ${S.vatStart && qEnd(Q) < S.vatStart ? '' : '<div class="actions"><button class="btn" type="button" data-act="vatreturn">Numbers for the return &rsaquo;</button></div>'}
     </section>
     <section class="block"><h2>Earned this quarter</h2>
       <button class="big tapbig" type="button" data-act="earnings" aria-label="${eur(s.earned)} earned this quarter. Show all earnings">${eur(s.earned)}<i>All earnings &rsaquo;</i></button>
@@ -323,6 +331,92 @@ if (/(^|[#&])(access_token|error)=/.test(location.hash)) document.getElementById
     <section class="block"><h2>By month</h2>
       <div class="months">${months.map(x => `<div class="month wide"><span>${x.label}</span><div class="bar"><i class="${x.v.e ? '' : 'zero'}" style="width:${(x.v.e / cap * 100).toFixed(1)}%"></i></div><span class="v">${eur(x.v.e)}</span></div>`).join('')}</div>
     </section>`;
+  }
+  /* The Dutch VAT return (btw-aangifte): turnover and VAT per rate go in rubriek 1, deductible VAT in 5b.
+     The Belastingdienst wants whole euros and allows rounding in the filer's favour. */
+  function returnData(Q) {
+    const start = state.settings.vatStart, counts = d => !start || (d || '') >= start;
+    const inv = invList().filter(i => inQ(i.issued, Q) && counts(i.issued)).reverse();
+    const ex = exList().filter(e => inQ(e.date, Q) && counts(e.date)).reverse();
+    const b = { t21: 0, v21: 0, t9: 0, v9: 0, t0: 0, tX: 0, vX: 0 };
+    for (const i of inv) {
+      const lines = i.edited ? [] : (i.lines || []), parts = {};
+      if (lines.length) for (const l of lines) parts[l.vatRate || 0] = (parts[l.vatRate || 0] || 0) + (l.amount || 0);
+      else parts[i.subtotal ? Math.round((i.vat || 0) / i.subtotal * 100) : 0] = i.subtotal || 0;
+      const raw = Object.entries(parts).reduce((t, [r, a]) => t + a * r / 100, 0);
+      for (const [r, a] of Object.entries(parts)) {
+        const rate = Number(r), v = raw ? (i.vat || 0) * (a * rate / 100) / raw : 0;
+        if (rate === 21) { b.t21 += a; b.v21 += v; } else if (rate === 9) { b.t9 += a; b.v9 += v; } else if (rate === 0) b.t0 += a; else { b.tX += a; b.vX += v; }
+      }
+    }
+    const down = n => Math.floor(n + 1e-6), up = n => Math.ceil(n - 1e-6);
+    const vin = ex.reduce((t, e) => t + (e.vat || 0), 0), owed = down(b.v21) + down(b.v9);
+    return { inv, ex, exact: { t21: r2(b.t21), v21: r2(b.v21), t9: r2(b.t9), v9: r2(b.v9), t0: r2(b.t0), tX: r2(b.tX), vX: r2(b.vX), vin: r2(vin) },
+      box: { t21: down(b.t21), v21: down(b.v21), t9: down(b.t9), v9: down(b.v9), owed, vin: up(vin), total: owed - up(vin) } };
+  }
+  const eur0 = n => '€' + Math.abs(n).toLocaleString('en-GB');
+  function vatReturn() {
+    const Q = state.Q, name = `Q${Q.q} ${Q.y}`, start = state.settings.vatStart, t = today(), key = qKey(Q);
+    const back = '<button class="linkbtn back" type="button" data-act="back">&lsaquo; Back to overview</button>';
+    if (start && qEnd(Q) < start) return back + `<div class="list"><div class="empty">No VAT return for ${name}. Your registration starts ${nice(start)}.</div></div>`;
+    const d = returnData(Q), x = d.exact, b = d.box, nil = !d.inv.length && !d.ex.length;
+    const box = (n, label, nl, value, sub, cls) => `<div class="box ${cls || ''}"><span class="n">${n}</span><span class="l">${label}<small>${nl}</small></span><span class="v">${value}${sub ? `<small>${sub}</small>` : ''}</span></div>`;
+    return back + `
+    <section class="block"><h2>Numbers for your VAT return ${name}</h2>
+      <p class="small muted">${nil ? 'Nothing to report this quarter. You still have to send in the return, with zeros.' : 'Type these into the matching boxes of the return. Whole euros, rounded in your favour, which the Belastingdienst allows.'}</p>
+      <div>
+        ${box('1a', 'Turnover at 21%', 'Leveringen/diensten belast met hoog tarief', eur0(b.t21), `VAT ${eur0(b.v21)}`)}
+        ${x.t9 ? box('1b', 'Turnover at 9%', 'Leveringen/diensten belast met laag tarief', eur0(b.t9), `VAT ${eur0(b.v9)}`) : ''}
+        ${box('5a', 'VAT you owe', 'Verschuldigde btw, the form adds this up itself', eur0(b.owed))}
+        ${box('5b', 'VAT on your costs', 'Voorbelasting', eur0(b.vin))}
+        ${box('', b.total < 0 ? 'You get back' : 'You pay', b.total < 0 ? 'Totaal terug te vragen' : 'Totaal te betalen', eur0(b.total), '', 'total')}
+      </div>
+      <div class="small muted">Exact amounts: turnover ${eur(x.t21 + x.t9)}, VAT on invoices ${eur(x.v21 + x.v9)}, VAT on expenses ${eur(x.vin)}.</div>
+      ${x.t0 ? `<div class="notice">${eur(x.t0)} on invoices in this period carries no VAT and is not in the boxes above. Check where that belongs before you file.</div>` : ''}
+      ${x.tX ? `<div class="notice bad">${eur(x.tX)} is invoiced at a VAT rate other than 21% or 9% (${eur(x.vX)} VAT) and is not in the boxes above.</div>` : ''}
+    </section>
+    <section class="block"><h2>How filing works</h2>
+      <ol class="steps">
+        <li>From ${nice(qOpen(Q))}, log in to Mijn Belastingdienst Zakelijk with your DigiD and open the btw-aangifte for ${name}.</li>
+        <li>Type in the numbers above. Leave every other box empty or zero. You upload no documents.</li>
+        <li>Check the total the form shows against the one here, then send it.</li>
+        <li>Pay by ${nice(qDue(Q))}: with iDEAL straight from the return, or by bank transfer using the payment reference (betalingskenmerk) shown there.</li>
+        <li>Keep your invoices and receipts for seven years. They are your proof if anyone asks.</li>
+      </ol>
+      <div class="small muted">This is a helper, not tax advice. If the form asks for something you do not recognise, check with the Belastingdienst before sending.</div>
+    </section>
+    <section class="block"><h2>What it is based on</h2>
+      <div class="rows"><div><span>${d.inv.length} invoice${d.inv.length === 1 ? '' : 's'}</span><span>${eur(d.inv.reduce((s, i) => s + (i.subtotal || 0), 0))}</span></div><div><span>${d.ex.length} expense${d.ex.length === 1 ? '' : 's'}</span><span>${eur(d.ex.reduce((s, e) => s + (e.amount || 0), 0))}</span></div></div>
+      <div class="actions"><button class="btn" type="button" data-act="sumpdf" ${state.busy === 'sum' ? 'disabled' : ''}>${state.busy === 'sum' ? 'Making the PDF' : 'Save a summary PDF'}</button>${d.inv.some(i => i.pdf) ? `<button class="btn" type="button" data-act="mergeq" ${state.busy === 'merge' ? 'disabled' : ''}>${state.busy === 'merge' ? 'Putting the PDFs together' : 'Save the invoice PDFs as one file'}</button>` : ''}</div>
+      <div class="small muted">The summary lists every invoice and expense behind these numbers, for your own records.</div>
+    </section>
+    ${t > qEnd(Q) ? (state.settings.filed[key] ? '<button class="btn wide" type="button" data-act="unfile">Marked as filed. Undo</button>' : '<button class="btn primary wide" type="button" data-act="file">I have filed this return</button>') : ''}`;
+  }
+  async function summaryPdf() {
+    const Q = state.Q, d = returnData(Q), b = d.box;
+    state.busy = 'sum'; render();
+    try {
+      await loadScript(CDN + 'pdf-lib/1.17.1/pdf-lib.min.js');
+      const doc = await PDFLib.PDFDocument.create(), font = await doc.embedFont(PDFLib.StandardFonts.Courier), bold = await doc.embedFont(PDFLib.StandardFonts.CourierBold);
+      const clean = s => String(s ?? '').replace(/[^\x20-\x7E\xA1-\xFF]/g, '?');
+      const col = (s, n) => clean(s).slice(0, n).padEnd(n), num = v => (v || 0).toFixed(2).padStart(11), whole = v => String(v).padStart(8);
+      let page, y;
+      const line = (text, f) => { if (!page || y < 50) { page = doc.addPage([595, 842]); y = 795; } if (text) page.drawText(clean(text), { x: 42, y, size: 9.5, font: f || font }); y -= 14; };
+      line(`Gig Kasboek   VAT summary Q${Q.q} ${Q.y}`, bold); line(`Made on ${nice(today())}. Amounts in euros.`); line('');
+      line('Return boxes (whole euros, rounded in your favour)', bold);
+      line(`1a  Turnover at 21%   ${whole(b.t21)}    VAT ${whole(b.v21)}`);
+      if (d.exact.t9) line(`1b  Turnover at 9%    ${whole(b.t9)}    VAT ${whole(b.v9)}`);
+      line(`5a  VAT owed          ${whole(b.owed)}`); line(`5b  VAT on costs      ${whole(b.vin)}`);
+      line(`    ${b.total < 0 ? 'To get back  ' : 'To pay       '} ${whole(Math.abs(b.total))}`, bold); line('');
+      line('Invoices', bold); line(`${col('Date', 12)}${col('Number', 28)}${'Excl. VAT'.padStart(11)}${'VAT'.padStart(11)}`, bold);
+      for (const i of d.inv) line(`${col(i.issued, 12)}${col(i.number, 28)}${num(i.subtotal)}${num(i.vat)}`);
+      if (!d.inv.length) line('None');
+      line(''); line('Expenses', bold); line(`${col('Date', 12)}${col('What', 28)}${'Paid'.padStart(11)}${'VAT'.padStart(11)}`, bold);
+      for (const e of d.ex) line(`${col(e.date, 12)}${col(e.what, 28)}${num(e.amount)}${num(e.vat)}`);
+      if (!d.ex.length) line('None');
+      await saveBlob(new Blob([await doc.save()], { type: 'application/pdf' }), `VAT_summary_${Q.y}-Q${Q.q}.pdf`);
+    } catch (e) { toast(e && e.message === 'offline' ? 'You need to be online the first time you do this.' : 'The summary could not be made.'); }
+    state.busy = null; render();
   }
   function invoiceItem(i) {
     const shifts = (i.lines || []).filter(l => l.kind === 'shift');
@@ -408,17 +502,17 @@ if (/(^|[#&])(access_token|error)=/.test(location.hash)) document.getElementById
   function render() {
     const Q = state.Q;
     $('qLabel').textContent = `Q${Q.q} ${Q.y}`; $('qSub').textContent = `${MON[Q.q * 3 - 3]} to ${MON[Q.q * 3 - 1]}`;
-    const sub = state.tab === 'overview' && state.sub === 'earnings';
-    $('qnav').hidden = state.tab === 'setup' || sub;
-    $('pageTitle').textContent = sub ? 'Earnings' : { overview: 'Overview', invoices: 'Invoices', expenses: 'Expenses', setup: 'Setup' }[state.tab];
-    $('view').className = sub ? 'v-earnings' : 'v-' + state.tab;
+    const sub = state.tab === 'overview' ? state.sub : null;
+    $('qnav').hidden = state.tab === 'setup' || !!sub;
+    $('pageTitle').textContent = sub === 'earnings' ? 'Earnings' : sub === 'vatreturn' ? 'VAT return' : { overview: 'Overview', invoices: 'Invoices', expenses: 'Expenses', setup: 'Setup' }[state.tab];
+    $('view').className = 'v-' + (sub || state.tab);
     document.querySelectorAll('nav.tabs button').forEach(b => b.setAttribute('aria-current', b.dataset.tab === state.tab ? 'page' : 'false'));
     if (state.tab !== 'expenses') $('exForm').hidden = true;
     header();
     const v = $('view');
     if (!state.loaded) { v.innerHTML = '<div class="list"><div class="empty">Loading your invoices and expenses.</div></div>'; return; }
     if (state.failed) { v.innerHTML = '<div class="list"><div class="empty">This browser will not let the app store data. Leave private browsing, or try another browser.</div></div>'; return; }
-    v.innerHTML = state.tab === 'invoices' ? invoices() : state.tab === 'expenses' ? expenses() : state.tab === 'setup' ? setup() : sub ? earnings() : overview();
+    v.innerHTML = state.tab === 'invoices' ? invoices() : state.tab === 'expenses' ? expenses() : state.tab === 'setup' ? setup() : sub === 'earnings' ? earnings() : sub === 'vatreturn' ? vatReturn() : overview();
     v.querySelectorAll('img[data-file]').forEach(async img => { const u = await fileUrl(img.dataset.file); if (u) img.src = u; });
   }
 
@@ -443,8 +537,8 @@ if (/(^|[#&])(access_token|error)=/.test(location.hash)) document.getElementById
     state.busy = null; if (added) state.invScope = 'all'; render();
     toast(added ? `${added} invoice${added === 1 ? '' : 's'} added${dup ? `, ${dup} already there` : ''}` : dup ? 'Those invoices are already in the app' : 'Those files could not be read');
   }
-  async function mergePdfs() {
-    const Q = state.Q, all = state.invScope === 'all', list = (all ? invList() : sums(Q).inv).filter(i => i.pdf).reverse();
+  async function mergePdfs(quarterOnly) {
+    const Q = state.Q, all = !quarterOnly && state.invScope === 'all', list = (all ? invList() : sums(Q).inv).filter(i => i.pdf).reverse();
     if (!list.length) return;
     state.busy = 'merge'; render();
     try {
@@ -590,6 +684,9 @@ if (/(^|[#&])(access_token|error)=/.test(location.hash)) document.getElementById
       else if (act === 'scope') state.invScope = b.dataset.v;
       else if (act === 'earnings') { state.sub = 'earnings'; window.scrollTo(0, 0); }
       else if (act === 'back') { state.sub = null; window.scrollTo(0, 0); }
+      else if (act === 'vatreturn') { state.sub = 'vatreturn'; window.scrollTo(0, 0); }
+      else if (act === 'sumpdf') return summaryPdf();
+      else if (act === 'mergeq') return mergePdfs(true);
       else if (act === 'gosetup') { state.tab = 'setup'; lsSet('kb.tab', 'setup'); }
       else if (act === 'openpdf') return openFile(state.invoices.get(id).pdf);
       else if (act === 'savepdf') { const i = state.invoices.get(id), blob = await fileBlob(i.pdf); return blob ? saveBlob(blob, `Invoice_${i.id}.pdf`) : toast('That file is no longer on this device.'); }
